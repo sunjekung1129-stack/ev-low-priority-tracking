@@ -3,6 +3,11 @@
 
 // ============================================================ constants (ตามแบบฟอร์มขอใช้ไฟฟ้า EV Low Priority)
 const APP_TITLE = 'EV-LPTS · ระบบติดตามสถานะคำร้องขอใช้ไฟฟ้า EV Low Priority';
+// ไอคอนเครื่องอัดประจุไฟฟ้า (ใช้บนพื้นทองของแบนเนอร์/หน้าเข้าสู่ระบบ)
+const CHARGER_MARK = `<svg viewBox="0 0 32 32" width="28" height="28"><rect x="6" y="4.5" width="13.5" height="21.5" rx="3.2" fill="#4a1663"/>
+  <rect x="8.6" y="7.4" width="8.3" height="5" rx="1.3" fill="#ffe58a"/><path d="M14.4 14.2 10.9 19.4h2.9l-.9 3.8 3.9-5.5h-2.9z" fill="#ffe58a"/>
+  <path d="M19.5 11.5h2.3a2 2 0 0 1 2 2v7.8a1.6 1.6 0 0 0 3.2 0v-9.6L24.6 9" fill="none" stroke="#4a1663" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="4.5" y="26.2" width="16.5" height="2.2" rx="1.1" fill="#4a1663" fill-opacity=".7"/></svg>`;
 const ROLE_LABEL = { field: 'กฟส.ในพื้นที่ใช้ไฟฟ้า', tfd: 'กองทดสอบอุปกรณ์ไฟฟ้า (กทฟ.)', region: 'กบล. กฟข.', admin: 'ผู้ดูแลระบบ' };
 const canCreate = (u) => u.role === 'field' || u.role === 'admin';
 const scopeLabel = (u) => (u.role === 'field' ? u.office : u.role === 'region' ? `กบล. ${regionLabel(u.office)}` : 'ทุกการไฟฟ้า');
@@ -356,38 +361,65 @@ function renderLogin() {
   $('#loginRoot').innerHTML = `
   <div class="login">
     <section class="login-art">
-      <div class="brand" style="padding:0;color:#fff">
-        <span class="brand-mark" style="background:rgba(255,255,255,.14);box-shadow:none"><svg viewBox="0 0 32 32" width="22" height="22"><path d="M18 5 9 18h6l-2 9 10-14h-6z" fill="#f5b301"/></svg></span>
-        <span class="brand-text"><strong lang="en">EV Low Priority Tracking System (EV-LPTS)</strong>
-          <small>ระบบติดตามสถานะคำร้องขอใช้ไฟฟ้า EV Low Priority · การไฟฟ้าส่วนภูมิภาค</small></span>
+      <svg class="la-circuit" viewBox="0 0 600 900" preserveAspectRatio="xMaxYMax slice" fill="none" stroke="#ffd666" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+        <path d="M600 120H470l-30 30H330l-24 24h-90" stroke-opacity=".35"/><path d="M600 210H520l-26 26H400" stroke-opacity=".25"/>
+        <path d="M600 640H500l-34-34H360l-28 28H240" stroke-opacity=".3"/><path d="M600 720H540l-22 22H430l-18-18H330" stroke-opacity=".22"/>
+        <path d="M470 120V60M400 236v60M466 606v-60M412 724v70" stroke-opacity=".22"/>
+        <g fill="#ffd666" stroke="none" fill-opacity=".55"><circle cx="440" cy="150" r="4"/><circle cx="306" cy="174" r="4"/><circle cx="494" cy="236" r="4"/>
+          <circle cx="466" cy="606" r="4"/><circle cx="332" cy="634" r="4"/><circle cx="518" cy="742" r="4"/><circle cx="412" cy="724" r="4"/></g>
+      </svg>
+      <svg class="la-bolt" viewBox="0 0 32 32" aria-hidden="true"><path d="M18 2 6 18h8l-2 12 14-17h-8z" fill="#fff"/></svg>
+
+      <header class="la-brand">
+        <span class="tb-mark" aria-hidden="true">${CHARGER_MARK}</span>
+        <span class="la-brand-text">
+          <span class="tb-en" lang="en">EV Low Priority Tracking System <span class="tb-code">EV-LPTS</span></span>
+          <span class="tb-th">ระบบติดตามสถานะคำร้องขอใช้ไฟฟ้า EV Low Priority</span>
+        </span>
+      </header>
+
+      <div class="la-hero">
+        <span class="la-kicker">การไฟฟ้าส่วนภูมิภาค · Provincial Electricity Authority</span>
+        <h2>ติดตามทุกคำร้อง<br>ตั้งแต่รับคำร้องจนได้<br><span class="la-gold">อัตรา Low Priority</span></h2>
+        <p>กฟส.ในพื้นที่ใช้ไฟฟ้า กบล. กฟข. และ กทฟ. ทำงานบนข้อมูลชุดเดียวกัน เห็นสถานะทุกขั้นตอน และได้รับแจ้งเตือนเมื่อถึงคิวของตน</p>
+        <ol class="la-steps">
+          <li><b>1</b><span><strong>รับคำร้องขอใช้ไฟฟ้า</strong><small>CA · Meter No. · PDF แบบฟอร์มคำร้อง</small></span></li>
+          <li><b>2</b><span><strong>ชำระค่าทดสอบ</strong><small>ค่าทดสอบความปลอดภัย · ค่าทดสอบ CPO</small></span></li>
+          <li><b>3</b><span><strong>ตรวจเงื่อนไข 3 ข้อ</strong><small>ขึ้นทะเบียนเครื่องอัดประจุ · ตรวจการติดตั้ง · ทดสอบ CPO–PEA EVMS</small></span></li>
+          <li><b>4</b><span><strong>ข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้า</strong><small>จัดทำก่อนเปลี่ยนอัตรา</small></span></li>
+          <li><b>${icon('zap', 'i-sm')}</b><span><strong>เปลี่ยนอัตรา Low ในระบบ SAP</strong><small>บันทึกวันที่มีผล · เสร็จสมบูรณ์</small></span></li>
+        </ol>
       </div>
-      <div>
-        <h2>ติดตามคำร้องสถานีอัดประจุไฟฟ้า ตั้งแต่รับคำร้องจนได้อัตรา Low Priority</h2>
-        <p>กฟส.ในพื้นที่ใช้ไฟฟ้า และ กทฟ. ทำงานบนข้อมูลชุดเดียวกัน เห็นสถานะเงื่อนไขทั้ง 3 ข้อ และได้รับแจ้งเตือนเมื่อถึงคิวของตน</p>
-        <div class="login-steps">
-          <div><b>1</b>หลักฐานการขึ้นทะเบียนเครื่องอัดประจุไฟฟ้า</div>
-          <div><b>2</b>ผลตรวจสอบมาตรฐานการติดตั้งก่อนติดตั้งมิเตอร์</div>
-          <div><b>3</b>ผลทดสอบระบบ CPO กับ PEA EVMS โดย กทฟ.</div>
-        </div>
-      </div>
-      <small style="opacity:.6">© การไฟฟ้าส่วนภูมิภาค</small>
-      <svg class="glow" viewBox="0 0 32 32"><path d="M18 5 9 18h6l-2 9 10-14h-6z" fill="#fff"/></svg>
+
+      <footer class="la-foot"><span>© การไฟฟ้าส่วนภูมิภาค</span>
+        <span class="la-roles"><i>กฟส.</i><i>กบล. กฟข.</i><i>กทฟ.</i></span></footer>
     </section>
+
     <section class="login-form">
-      <form id="loginForm">
-        <div><h1>เข้าสู่ระบบ</h1><p class="muted" style="margin-top:4px">ใช้บัญชีที่ผู้ดูแลระบบกำหนดให้</p></div>
+      <form id="loginForm" class="login-card">
+        <span class="lc-mark" aria-hidden="true">${icon('key')}</span>
+        <div><h1>เข้าสู่ระบบ</h1><p class="muted">ยินดีต้อนรับสู่ EV-LPTS · ใช้บัญชีที่ผู้ดูแลระบบกำหนดให้</p></div>
         <label class="field"><span>ชื่อผู้ใช้</span>
-          <div class="input-icon">${icon('user')}<input type="text" name="username" autocomplete="username" required autofocus></div></label>
+          <div class="input-icon">${icon('user')}<input type="text" name="username" autocomplete="username" required autofocus placeholder="ชื่อผู้ใช้"></div></label>
         <label class="field"><span>รหัสผ่าน</span>
-          <div class="input-icon">${icon('key')}<input type="password" name="password" autocomplete="current-password" required></div></label>
+          <div class="input-icon pw-wrap">${icon('key')}<input type="password" name="password" autocomplete="current-password" required placeholder="รหัสผ่าน">
+            <button type="button" class="pw-toggle" id="pwToggle" aria-label="แสดงรหัสผ่าน" aria-pressed="false">แสดง</button></div></label>
         <div class="alert alert-danger" id="loginErr" hidden></div>
-        <button class="btn btn-primary" style="min-height:44px">เข้าสู่ระบบ</button>
+        <button class="btn btn-primary lc-submit">เข้าสู่ระบบ<span aria-hidden="true">→</span></button>
+        <p class="lc-help">ลืมรหัสผ่านหรือยังไม่มีบัญชี ติดต่อผู้ดูแลระบบของหน่วยงาน</p>
         <div class="demo">บัญชีทดลอง · รหัสผ่าน <code>pea1234</code><br>
           <code>field1</code> กฟจ.เชียงใหม่ · <code>field2</code> กฟจ.ชลบุรี · <code>tfd1</code> กทฟ. · <code>region1</code> กบล. กฟน.1<br>
           ผู้ดูแลระบบ <code>admin</code> / <code>admin1234</code></div>
       </form>
     </section>
   </div>`;
+  $('#pwToggle').addEventListener('click', (e) => {
+    const input = $('#loginForm [name=password]'); const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    e.currentTarget.textContent = show ? 'ซ่อน' : 'แสดง';
+    e.currentTarget.setAttribute('aria-pressed', String(show));
+    e.currentTarget.setAttribute('aria-label', show ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน');
+  });
   $('#loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
