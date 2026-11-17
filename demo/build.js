@@ -234,7 +234,7 @@ async function main() {
   fs.copyFileSync(path.join(__dirname, 'boot.js'), path.join(OUT, 'boot.js'));
   let html = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
   const swap = (from, to) => { if (!html.includes(from)) throw new Error(`index.html: ไม่พบ ${from}`); html = html.replace(from, to); };
-  swap('<title>EV Low Priority Tracking</title>', '<title>EV Low Priority Tracking (เดโม)</title>\n  <meta name="robots" content="noindex">');
+  swap('<title>EV-LPTS · ระบบติดตามสถานะคำร้องขอใช้ไฟฟ้า EV Low Priority</title>', '<title>EV-LPTS (เดโม) · ระบบติดตามสถานะคำร้องขอใช้ไฟฟ้า EV Low Priority</title>\n  <meta name="robots" content="noindex">');
   swap('href="/styles.css"', 'href="styles.css"');
   swap('<script src="/app.js"></script>',
     '<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>\n  <script src="boot.js"></script>');

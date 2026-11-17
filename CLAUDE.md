@@ -1,4 +1,4 @@
-# EV Low Priority Tracking (กฟภ.)
+# EV Low Priority Tracking System (EV-LPTS) — กฟภ.
 
 ระบบติดตามคำร้องขอใช้ไฟฟ้าสถานีอัดประจุไฟฟ้าแบบ Low Priority ของ กฟภ. ผู้ใช้เป็นพนักงาน กฟภ. สื่อสารและหน้าจอทั้งหมดเป็นภาษาไทย คู่มือผู้ใช้อยู่ใน `README.md`
 

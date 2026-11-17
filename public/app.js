@@ -2,6 +2,7 @@
 /* EV Low Priority Tracking — client (vanilla JS SPA, hash routing) */
 
 // ============================================================ constants (ตามแบบฟอร์มขอใช้ไฟฟ้า EV Low Priority)
+const APP_TITLE = 'EV-LPTS · ระบบติดตามสถานะคำร้องขอใช้ไฟฟ้า EV Low Priority';
 const ROLE_LABEL = { field: 'กฟส.ในพื้นที่ใช้ไฟฟ้า', tfd: 'กองทดสอบอุปกรณ์ไฟฟ้า (กทฟ.)', region: 'กบล. กฟข.', admin: 'ผู้ดูแลระบบ' };
 const canCreate = (u) => u.role === 'field' || u.role === 'admin';
 const scopeLabel = (u) => (u.role === 'field' ? u.office : u.role === 'region' ? `กบล. ${regionLabel(u.office)}` : 'ทุกการไฟฟ้า');
@@ -340,7 +341,8 @@ function renderLogin() {
     <section class="login-art">
       <div class="brand" style="padding:0;color:#fff">
         <span class="brand-mark" style="background:rgba(255,255,255,.14);box-shadow:none"><svg viewBox="0 0 32 32" width="22" height="22"><path d="M18 5 9 18h6l-2 9 10-14h-6z" fill="#f5b301"/></svg></span>
-        <span class="brand-text"><strong>EV Low Priority</strong><small>การไฟฟ้าส่วนภูมิภาค</small></span>
+        <span class="brand-text"><strong lang="en">EV Low Priority Tracking System (EV-LPTS)</strong>
+          <small>ระบบติดตามสถานะคำร้องขอใช้ไฟฟ้า EV Low Priority · การไฟฟ้าส่วนภูมิภาค</small></span>
       </div>
       <div>
         <h2>ติดตามคำร้องสถานีอัดประจุไฟฟ้า ตั้งแต่รับคำร้องจนได้อัตรา Low Priority</h2>
@@ -1873,7 +1875,7 @@ async function refreshNotifCount() {
     const b = $('#notifCount');
     b.textContent = unread > 99 ? '99+' : unread;
     b.hidden = !unread;
-    document.title = unread ? `(${unread}) EV Low Priority Tracking` : 'EV Low Priority Tracking';
+    document.title = unread ? `(${unread}) ${APP_TITLE}` : APP_TITLE;
   } catch { /* ignore */ }
   refreshSideStats();
 }
