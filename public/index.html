@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EV Low Priority Tracking</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236b2c91'/%3E%3Cpath d='M18 5 9 18h6l-2 9 10-14h-6z' fill='%23f5b301'/%3E%3C/svg%3E">
+</head>
+<body>
+  <div id="shell" class="shell" hidden>
+    <aside id="sidebar" class="sidebar">
+      <a class="brand" href="#/" aria-label="EV Low Priority — หน้าแรก">
+        <span class="brand-mark">
+          <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
+            <rect x="6" y="4.5" width="13.5" height="21.5" rx="3.2" fill="#fff"/>
+            <rect x="8.6" y="7.4" width="8.3" height="5" rx="1.3" fill="#6b2c91" fill-opacity=".9"/>
+            <path d="M14.4 14.2 10.9 19.4h2.9l-.9 3.8 3.9-5.5h-2.9z" fill="#f5b301"/>
+            <path d="M19.5 11.5h2.3a2 2 0 0 1 2 2v7.8a1.6 1.6 0 0 0 3.2 0v-9.6L24.6 9" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="4.5" y="26.2" width="16.5" height="2.2" rx="1.1" fill="#fff" fill-opacity=".75"/>
+          </svg>
+        </span>
+        <span class="brand-text">
+          <span class="brand-eyebrow">PEA · การไฟฟ้าส่วนภูมิภาค</span>
+          <strong>EV Low Priority</strong>
+          <small>ระบบติดตามคำร้อง</small>
+        </span>
+      </a>
+      <nav id="mainnav" class="nav"></nav>
+      <div id="sideStats" class="side-stats" hidden></div>
+      <div class="sidebar-foot">
+        <div id="userCard" class="user-card"></div>
+        <div class="user-actions">
+          <button class="nav-btn" data-action="change-password"></button>
+          <button class="nav-btn" data-action="logout"></button>
+        </div>
+      </div>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+
+    <div class="main">
+      <header class="appbar">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="เมนู"></button>
+        <div class="crumbs" id="crumbs"></div>
+        <div class="appbar-actions">
+          <div class="notif">
+            <button id="notifBtn" class="icon-btn" aria-label="การแจ้งเตือน" aria-haspopup="true"></button>
+            <span id="notifCount" class="badge-count" hidden></span>
+            <div id="notifPanel" class="popover notif-panel" hidden></div>
+          </div>
+        </div>
+      </header>
+      <main id="app" class="content"></main>
+    </div>
+  </div>
+
+  <div id="loginRoot"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="dialog"></dialog>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

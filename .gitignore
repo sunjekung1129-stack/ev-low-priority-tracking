@@ -1,0 +1,20 @@
+node_modules/
+
+# ข้อมูลจริง (มีข้อมูลส่วนบุคคลของลูกค้า — PDPA) และสำเนาสำรอง: ห้ามเข้า git
+data/
+backups/
+
+# ไฟล์ข้อมูลที่อาจหลุดมาในโฟลเดอร์โปรเจกต์ (เช่น Excel ต้นทาง, CSV ที่ส่งออก, ไฟล์แนบ)
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.db
+*.db-wal
+*.db-shm
+
+.env*
+*.log
+Thumbs.db
+.DS_Store
+.claude/settings.local.json
