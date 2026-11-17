@@ -196,6 +196,8 @@ const condProgress = (r) => {
   return `<span class="cprog" title="${[1, 2, 3].map((k) => `เงื่อนไข ${k} ${CONDITIONS[k].short}: ${r[`c${k}`] ? 'ครบ' : 'ยังไม่ครบ'}`).join('\n')}">
     <span class="bars">${[1, 2, 3].map((k) => `<i class="${r[`c${k}`] ? 'on' : ''}"></i>`).join('')}</span><span class="lbl">${n}/3</span></span>`;
 };
+// เปิดลิงก์ดาวน์โหลดของ API (ในเว็บเดโม GitHub Pages ใช้ window.demoOpen แทน)
+const openUrl = (url) => (window.demoOpen ? window.demoOpen(url) : (location.href = url));
 const linkLabel = (url) => {
   try {
     const h = new URL(url).hostname;
@@ -640,7 +642,7 @@ async function renderDashboard() {
   });
   $('#exportBtn').addEventListener('click', (e) => {
     e.preventDefault();
-    location.href = `/api/applications/export.csv?${new URLSearchParams(f)}`;
+    openUrl(`/api/applications/export.csv?${new URLSearchParams(f)}`);
   });
   await loadList();
 }

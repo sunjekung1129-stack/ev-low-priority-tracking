@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "import": "node scripts/import-excel.js"
+    "import": "node scripts/import-excel.js",
+    "demo:build": "node demo/build.js",
+    "demo:deploy": "node demo/deploy.js"
   },
   "dependencies": {
     "content-disposition": "^1.1.0",

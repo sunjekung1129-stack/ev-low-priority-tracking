@@ -59,6 +59,17 @@ node .claude/skills/ev-verify/scripts/gas-mock.js google-apps-script/Code.gs 399
 
 Restart the test server on 3999 so it picks up the settings. Wait about 15 s, then `curl -s http://localhost:3990/dump` to inspect the simulated sheet rows/formulas, folders and files. `GET /user-edit` adds a user column and formula so you can confirm the sync never overwrites them. The simulator mirrors the Apps Script APIs the script uses, but it is not Google. Tell the user that the real deployment is the final test.
 
-## 6. Clean up and report
+## 6. Demo site (GitHub Pages)
+
+When `server/`, `public/` or `demo/` changes and the user wants the demo updated, rebuild it and run the browser test. The test serves `demo-dist/` under `/ev-low-priority-tracking/` the way GitHub Pages does (port 3977). It logs in through the demo panel and exercises payment, area rules, file upload/download, intake, CSV, persistence after reload, and reset:
+
+```bash
+npm run demo:build
+node .claude/skills/ev-verify/scripts/demo-test.js "<scratchpad>/demo-shots"   # create the folder first
+```
+
+The demo runs the real `server/*.js` in the browser through shims in `demo/boot.js`. If the server starts using a new Node module or API (for example a new `fs` function), the demo breaks until the shim supports it, and a failing `demo-test.js` usually means exactly that. Publish only when the user asks: `npm run demo:deploy` force-pushes `demo-dist/` to the `gh-pages` branch.
+
+## 7. Clean up and report
 
 Stop the test processes (ports 3999 and 3990) and delete the temp data folder. In the report to the user, say what was verified and how. Never test against real data or real Google.

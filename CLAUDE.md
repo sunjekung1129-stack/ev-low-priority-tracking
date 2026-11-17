@@ -8,6 +8,7 @@
 - Front end: `public/app.js` + `public/styles.css` (vanilla JS SPA, hash routing, ไม่มี build step), Leaflet จาก cdnjs สำหรับแผนที่
 - `server/db.js` schema + migrations · `server/index.js` API/สิทธิ์/workflow · `server/google-sync.js` คิวส่งไป Google · `google-apps-script/Code.gs` สคริปต์ฝั่ง Google · `scripts/import-excel.js` นำเข้า Excel
 - โค้ดอยู่ใน git (branch `main`, ไม่มี remote) — `data/`, `backups/` และไฟล์ xlsx/csv/pdf/db ไม่เข้า git เพราะมีข้อมูลส่วนบุคคลของลูกค้า; ย้อนโค้ดด้วย git แต่ย้อนข้อมูลด้วย `ev-data` (backup/restore)
+- เว็บเดโม GitHub Pages (ข้อมูลสมมติ) อยู่ใน `demo/`: `boot.js` รัน `server/*.js` ในเบราว์เซอร์ (sql.js + ตัวแทน express/multer/fs/crypto) — ถ้าเซิร์ฟเวอร์เริ่มใช้โมดูล/ฟังก์ชันของ Node ตัวใหม่ ต้องเพิ่มใน `boot.js` แล้วรัน `demo-test.js` (ดู `ev-verify`) · อัปเดตด้วย `npm run demo:build` + `npm run demo:deploy` (branch `gh-pages`) เฉพาะเมื่อผู้ใช้สั่ง
 - ข้อมูลจริงอยู่ใน `data/` บนเครื่องผู้ใช้ (ยังไม่ได้ย้ายขึ้นเซิร์ฟเวอร์ — ผู้ใช้จะขอเซิร์ฟเวอร์จากไอที กฟภ. เอง ไม่ต้องเสนอ cloud)
 
 ## Skills ของโปรเจกต์
