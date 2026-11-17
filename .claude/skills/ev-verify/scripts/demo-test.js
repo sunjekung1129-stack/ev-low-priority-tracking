@@ -82,6 +82,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     res.create = [created.s, created.b.id];
     res.csv = (await fetch('/api/applications/export.csv?scope=all')).status;
     res.stats = (await j('GET', '/api/stats?scope=all')).b.total;
+    const docs = (await j('GET', '/api/documents')).b;
+    const docFile = docs[0] ? await fetch(`/api/documents/${docs[0].id}/file`) : null;
+    res.docs = [docs.length, docFile && docFile.status, docFile && (await docFile.arrayBuffer()).byteLength];
     return res;
   });
   check('เห็นคำร้องทั้งหมด 40 + ของตนเอง', r.total === 40 && r.mine >= 3, JSON.stringify(r));
@@ -91,6 +94,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check('เงื่อนไข 2 (เลขที่หนังสือ) ได้ · เงื่อนไข 3 โดย กฟส. ไม่ได้', r.ev2 === 201 && r.ev3byField === 403, `${r.ev2} ${r.ev3byField}`);
   check('รับคำร้องใหม่พร้อม PDF', r.create[0] === 201, JSON.stringify(r.create));
   check('ส่งออก CSV + สถิติ', r.csv === 200 && r.stats === 41, `${r.csv} ${r.stats}`);
+  check('เอกสารตัวอย่าง 4 รายการ เปิดไฟล์ได้', r.docs[0] === 4 && r.docs[1] === 200 && r.docs[2] > 300, JSON.stringify(r.docs));
 
   // ข้อมูลยังอยู่หลังรีโหลด (IndexedDB)
   await sleep(800);

@@ -69,8 +69,8 @@ async function waitUp() {
   throw new Error('เซิร์ฟเวอร์ชั่วคราวไม่ตอบสนอง');
 }
 // PDF ตัวอย่างขนาดเล็ก (ข้อความภาษาอังกฤษเพื่อไม่ต้องฝังฟอนต์)
-function samplePdf(title) {
-  const text = `DEMO - ${title} (sample file, not a real document)`.replace(/[()\\]/g, '');
+function samplePdf(title, lines = ['(sample file, not a real document)']) {
+  const clean = (t) => String(t).replace(/[()\\]/g, '');
   const objs = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -78,7 +78,8 @@ function samplePdf(title) {
     null,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
   ];
-  const stream = `BT /F1 16 Tf 60 770 Td (${text}) Tj ET`;
+  const stream = [`BT /F1 16 Tf 60 770 Td (DEMO - ${clean(title)}) Tj ET`,
+    ...lines.map((l, i) => `BT /F1 11 Tf 60 ${740 - i * 18} Td (${clean(l)}) Tj ET`)].join('\n');
   objs[3] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
   let out = '%PDF-1.4\n'; const offs = [];
   objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
@@ -159,6 +160,28 @@ async function seedData() {
       await call(admin, 'POST', `/api/applications/${id}/low-rate`, { contract_amended: true, low_effective_date: low });
     }
   }
+
+  // เอกสารหลักฐานที่เกี่ยวข้อง: ชื่อ/หมวด/คำอธิบายเหมือนระบบจริง แต่ไฟล์เป็น PDF ตัวอย่าง (ไม่ใช้ไฟล์จริงซึ่งมีลายน้ำชื่อพนักงาน/เป็นเอกสารภายใน)
+  const SAMPLE_NOTE = ['SAMPLE FILE FOR THE EV-LPTS DEMO SITE.', 'This is not a real PEA document.', 'The real form is available in the production system only.'];
+  const docs = [
+    ['intake', 'แบบฟอร์มการขอใช้ไฟฟ้า (เพิ่มเติม) สำหรับผู้ขอใช้ไฟฟ้าสถานีอัดประจุไฟฟ้า แบบ Low Priority',
+      'ผู้ขอใช้ไฟฟ้ากรอกข้อ 1–9 และลงนาม แล้วแนบเป็น PDF ตอนรับคำร้องในระบบ', 'แบบฟอร์มการขอใช้ไฟฟ้า (เพิ่มเติม) - ตัวอย่าง.pdf', 'Electricity Application Form Additional - Low Priority'],
+    ['conditions', 'แบบฟอร์มตรวจสอบการติดตั้งระบบอัดประจุยานยนต์ไฟฟ้าก่อนติดตั้งมิเตอร์ — รับไฟฟ้าแรงต่ำจากหม้อแปลงจำหน่ายของ กฟภ. (กวฟ.ผวต.-01-64)',
+      'ใช้ตรวจเงื่อนไขที่ 2 กรณีผู้ใช้ไฟฟ้ารับไฟแรงต่ำ 1 เฟส/3 เฟส จากหม้อแปลงของ กฟภ.', 'กวฟ.ผวต.-01-64 แบบฟอร์มตรวจสอบการติดตั้ง (แรงต่ำ) - ตัวอย่าง.pdf', 'Installation Inspection Form - Low Voltage'],
+    ['conditions', 'แบบฟอร์มตรวจสอบการติดตั้งระบบอัดประจุยานยนต์ไฟฟ้าก่อนติดตั้งมิเตอร์ — รับไฟฟ้าแรงสูงโดยติดตั้งหม้อแปลงเฉพาะราย (กวฟ.ผวต.-02-64)',
+      'ใช้ตรวจเงื่อนไขที่ 2 กรณีผู้ใช้ไฟฟ้ารับไฟแรงสูง 22/33 kV และติดตั้งหม้อแปลงของตนเอง', 'กวฟ.ผวต.-02-64 แบบฟอร์มตรวจสอบการติดตั้ง (แรงสูง) - ตัวอย่าง.pdf', 'Installation Inspection Form - High Voltage, dedicated transformer'],
+    ['contract', 'ข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้า (Low Priority)',
+      'จัดทำและลงนามกับผู้ใช้ไฟฟ้าก่อนบันทึกวันที่มีผลอัตรา Low Priority', 'ข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้า - ตัวอย่าง.pdf', 'Power Purchase Agreement Amendment - Low Priority'],
+  ];
+  for (const [i, [category, title, desc, fileName, enTitle]] of docs.entries()) {
+    const fd = new FormData();
+    fd.append('file', samplePdf(enTitle, SAMPLE_NOTE), fileName);
+    fd.append('title', title);
+    fd.append('category', category);
+    fd.append('description', `${desc} · ไฟล์ตัวอย่างสำหรับเดโม (ไฟล์จริงอยู่ในระบบจริงเท่านั้น)`);
+    fd.append('sort', String(i + 1));
+    await call(admin, 'POST', '/api/documents', fd);
+  }
   return created;
 }
 
@@ -216,15 +239,14 @@ async function main() {
   s.exec('PRAGMA journal_mode = DELETE');
   s.close();
 
-  // ไฟล์แนบตัวอย่าง (PDF แบบฟอร์มคำร้อง) → seed.json
+  // ไฟล์ตัวอย่าง (PDF แบบฟอร์มคำร้อง uploads/ + เอกสารหลักฐาน docs/) → seed.json โดยคีย์อ้างอิงจาก DATA_DIR
   const files = {};
-  const up = path.join(tmp, 'uploads');
   const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).forEach((e) => {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) walk(full);
-    else files[path.relative(up, full).split(path.sep).join('/')] = fs.readFileSync(full).toString('base64');
+    else files[path.relative(tmp, full).split(path.sep).join('/')] = fs.readFileSync(full).toString('base64');
   });
-  if (fs.existsSync(up)) walk(up);
+  for (const sub of ['uploads', 'docs']) if (fs.existsSync(path.join(tmp, sub))) walk(path.join(tmp, sub));
   fs.writeFileSync(path.join(OUT, 'seed.json'), JSON.stringify({ id: new Date().toISOString(), files }));
 
   // หน้าเว็บ: ใช้ไฟล์ชุดเดียวกับระบบจริง

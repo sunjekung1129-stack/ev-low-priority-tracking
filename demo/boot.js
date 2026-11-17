@@ -174,7 +174,7 @@
   const fresh = !saved || saved.seed !== seedMeta.id;
   if (fresh) {
     const buf = new Uint8Array(await (await fetch('seed.db', { cache: 'no-cache' })).arrayBuffer());
-    saved = { seed: seedMeta.id, db: buf, files: Object.entries(seedMeta.files).map(([k, b64]) => [`/app/data/uploads/${k}`, BufferShim.from(b64, 'base64')]) };
+    saved = { seed: seedMeta.id, db: buf, files: Object.entries(seedMeta.files).map(([k, b64]) => [`/app/data/${k}`, BufferShim.from(b64, 'base64')]) };
     ls.set(SID_KEY, null);
   }
   const raw = new SQL.Database(saved.db);
