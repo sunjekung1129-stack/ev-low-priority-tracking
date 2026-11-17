@@ -447,13 +447,26 @@
   const panel = badge.querySelector('.db-panel');
   const toggle = (open) => { panel.hidden = !open; chip.setAttribute('aria-expanded', String(open)); };
   chip.addEventListener('click', () => toggle(panel.hidden));
-  badge.querySelectorAll('[data-demo-login]').forEach((b) => b.addEventListener('click', async () => {
-    const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: b.dataset.demoLogin, password: DEMO_PASSWORD }) });
+  const demoLogin = async (username) => {
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password: DEMO_PASSWORD }) });
     if (!r.ok) { alert((await r.json()).error); return; }
     await new Promise((res) => setTimeout(res, 450)); // รอบันทึกข้อมูล
     location.hash = '#/';
     location.reload();
-  }));
+  };
+  badge.querySelectorAll('[data-demo-login]').forEach((b) => b.addEventListener('click', () => demoLogin(b.dataset.demoLogin)));
+  // หน้าเข้าสู่ระบบ: ใส่ปุ่มบัญชีเดโมไว้ในการ์ดเข้าสู่ระบบ (แทนกล่องบัญชีทดลองของระบบจริงที่ซ่อนไว้)
+  const injectLoginAccounts = () => {
+    const card = document.querySelector('#loginRoot .login-card');
+    if (!card || card.querySelector('.demo-login')) return;
+    const box = document.createElement('div');
+    box.className = 'demo-login';
+    box.innerHTML = `<div class="dl-head"><b>บัญชีทดลอง (เดโม)</b><span>รหัสผ่านทุกบัญชี <code>${DEMO_PASSWORD}</code> · กดเพื่อเข้าสู่ระบบ</span></div>
+      <div class="dl-grid">${ACCOUNTS.map(([u, role, note]) => `<button type="button" data-u="${u}"><b>${u}</b><span>${role} · ${note}</span></button>`).join('')}</div>`;
+    box.querySelectorAll('[data-u]').forEach((b) => b.addEventListener('click', () => demoLogin(b.dataset.u)));
+    card.append(box);
+  };
+  new MutationObserver(injectLoginAccounts).observe(document.getElementById('loginRoot'), { childList: true, subtree: true });
   badge.querySelector('.db-reset').addEventListener('click', async () => {
     if (!confirm('ล้างข้อมูลที่กรอกไว้ทั้งหมดในเบราว์เซอร์นี้ และกลับไปใช้ข้อมูลสมมติชุดเริ่มต้น?')) return;
     clearTimeout(saveTimer);
@@ -462,7 +475,6 @@
     location.hash = '#/';
     location.reload();
   });
-  if (!ls.get(SID_KEY)) toggle(true);
 
   if (fresh) { dirty = true; scheduleSave(); }
   loading.remove();
@@ -489,6 +501,18 @@
       #demoBadge .db-reset { margin-top: 10px; width: 100%; border: 1px dashed var(--border-strong, #d4d8e0); background: none; border-radius: 10px; padding: 7px; font: inherit; font-size: .82rem; color: var(--muted, #6b7280); cursor: pointer; }
       #demoBadge .db-reset:hover { color: var(--fail, #c2362b); border-color: var(--fail, #c2362b); }
       #loginRoot .demo { display: none; } /* กล่องบัญชีทดลองของระบบจริง (รหัสไม่ตรงกับเดโม) */
+      .demo-login { display: grid; gap: 8px; padding: 12px; border-radius: 12px; background: var(--brand-50, #f7f2fb); border: 1px dashed var(--brand-200, #dcc6ec); }
+      .demo-login .dl-head { display: flex; flex-direction: column; line-height: 1.4; }
+      .demo-login .dl-head b { font-size: .86rem; color: var(--brand, #6b2c91); }
+      .demo-login .dl-head span { font-size: .76rem; color: var(--muted, #6b7280); }
+      .demo-login code { font-size: .9em; background: #fff; border: 1px solid var(--border, #e7e9ee); border-radius: 4px; padding: 0 4px; color: var(--text, #121826); }
+      .demo-login .dl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      .demo-login .dl-grid button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 1px; padding: 7px 10px; border-radius: 9px;
+        border: 1px solid var(--border, #e7e9ee); background: #fff; font: inherit; cursor: pointer; color: inherit; min-width: 0; }
+      .demo-login .dl-grid button:first-child { grid-column: 1 / -1; }
+      .demo-login .dl-grid button:hover { border-color: var(--brand, #6b2c91); }
+      .demo-login .dl-grid b { font-size: .84rem; }
+      .demo-login .dl-grid span { font-size: .7rem; color: var(--muted, #6b7280); line-height: 1.35; }
       @media print { #demoBadge { display: none; } }`;
     document.head.append(st);
   }

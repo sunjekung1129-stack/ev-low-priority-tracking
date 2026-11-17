@@ -31,11 +31,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   await page.goto(URL0, { waitUntil: 'networkidle0' });
   await sleep(1500);
-  check('หน้าเข้าสู่ระบบ + แผงบัญชีเดโมเปิดอยู่', await page.$eval('#demoBadge .db-panel', (el) => !el.hidden));
+  check('หน้าเข้าสู่ระบบมีปุ่มบัญชีเดโม 5 บัญชีในการ์ด (แผงมุมขวาไม่บัง)', (await page.$$('.login-card .demo-login [data-u]')).length === 5
+    && await page.$eval('#demoBadge .db-panel', (el) => el.hidden));
   await page.screenshot({ path: `${OUT}/d1-login.png` });
 
   // เข้าสู่ระบบผ่านปุ่มในแผงเดโม
-  await page.click('[data-demo-login="field1"]');
+  await page.click('.demo-login [data-u="field1"]');
   await page.waitForNavigation({ waitUntil: 'networkidle0' }).catch(() => {});
   await sleep(2500);
   const who = await page.evaluate(async () => (await (await fetch('/api/me')).json()).user);
@@ -125,8 +126,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(2500);
   const reset = await page.evaluate(async () => (await fetch('/api/me')).status);
   check('รีเซ็ตข้อมูลแล้วต้องเข้าสู่ระบบใหม่', reset === 401, reset);
-  await page.setViewport({ width: 390, height: 844, isMobile: true });
-  await page.click('[data-demo-login="admin"]').catch(() => {});
+  await page.setViewport({ width: 390, height: 844, isMobile: true }); // isMobile ทำให้หน้าโหลดใหม่ — รอให้ปุ่มกลับมา
+  await page.waitForSelector('.demo-login [data-u="admin"]', { timeout: 20000 });
+  await page.click('.demo-login [data-u="admin"]');
   await page.waitForNavigation({ waitUntil: 'networkidle0' }).catch(() => {});
   await sleep(2500);
   await page.screenshot({ path: `${OUT}/d7-mobile.png` });
