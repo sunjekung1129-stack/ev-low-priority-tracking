@@ -275,6 +275,7 @@ function renderShell() {
   $('[data-action=change-password]').innerHTML = `${icon('key', 'i-sm')}เปลี่ยนรหัสผ่าน`;
   $('[data-action=logout]').innerHTML = `${icon('logout', 'i-sm')}ออกจากระบบ`;
   $('#menuBtn').innerHTML = icon('menu');
+  requestAnimationFrame(() => fitSidebar(true));
   $('#notifBtn').innerHTML = icon('bell');
 }
 
@@ -332,6 +333,22 @@ async function route() {
 }
 window.addEventListener('hashchange', route);
 window.addEventListener('scroll', () => $('.appbar')?.classList.toggle('scrolled', window.scrollY > 4), { passive: true });
+// แถบซ้ายสูงพอดีพื้นที่ใต้แบนเนอร์เสมอ (ตอนอยู่บนสุดแบนเนอร์กินพื้นที่ด้านบน — ไม่ให้ส่วนท้ายตกขอบจอ)
+// measure = true: วัดที่ความสูงน้อยสุด (อยู่บนสุดของหน้า) ว่าเนื้อหาล้นไหม แล้วย่อเท่าที่จำเป็น — ไม่เปลี่ยนระหว่างเลื่อนหน้าเพื่อไม่ให้กระตุก
+function fitSidebar(measure = false) {
+  const sb = $('#sidebar'); const tb = $('.topbanner');
+  if (!sb || !tb) return;
+  if (matchMedia('(max-width: 960px)').matches) { sb.style.height = ''; sb.classList.remove('sb-tight', 'sb-tighter'); return; } // มือถือ: เมนูเลื่อนออกเต็มจอ
+  if (measure === true) {
+    sb.style.height = `${window.innerHeight - tb.offsetHeight}px`;
+    sb.classList.remove('sb-tight', 'sb-tighter');
+    if (sb.scrollHeight > sb.clientHeight + 1) sb.classList.add('sb-tight');
+    if (sb.scrollHeight > sb.clientHeight + 1) sb.classList.add('sb-tighter');
+  }
+  sb.style.height = `${Math.round(window.innerHeight - Math.max(0, tb.getBoundingClientRect().bottom))}px`;
+}
+window.addEventListener('scroll', () => fitSidebar(), { passive: true });
+window.addEventListener('resize', () => fitSidebar(true));
 
 // ============================================================ login
 function renderLogin() {
@@ -1896,6 +1913,7 @@ async function refreshSideStats() {
       <div class="ss-bar" role="img" aria-label="ได้อัตรา Low แล้ว ${pct}%"><i style="width:${pct}%"></i></div>
       <div class="ss-foot"><span>ได้อัตรา Low แล้ว</span><b>${pct}%</b></div>`;
     box.hidden = false;
+    fitSidebar(true); // การ์ดสรุปเพิ่มความสูง: วัดใหม่ว่าแถบซ้ายพอดีจอไหม
     $$('[data-side-status]', box).forEach((b) => b.addEventListener('click', () => {
       Object.assign(state.filter, { status: b.dataset.sideStatus, missing: '', scope: 'mine', office: '', region: '' });
       $('#shell').classList.remove('nav-open');
