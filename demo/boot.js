@@ -289,13 +289,13 @@
           Object.assign(file, { destination: dest, filename: name, path: p });
           if (spec.array) out.push(file); else (out[field] ||= []).push(file);
         }
-        req.files = out;
+        if (spec.single) req.file = out[0]; else req.files = out;
         next();
       } catch (e) { next(e); }
     };
     return {
       array: (name) => mw({ array: true, name }),
-      single: (name) => mw({ array: true, name }),
+      single: (name) => mw({ array: true, single: true, name }),
       fields: (list) => mw({ names: list.map((x) => x.name) }),
     };
   }

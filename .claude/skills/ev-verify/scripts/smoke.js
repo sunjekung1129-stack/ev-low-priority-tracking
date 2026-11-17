@@ -107,9 +107,12 @@ const multipart = (payload, files = {}) => {
   r = await call(f1, 'POST', `/api/invoices/${safetyInv.id}/payment`, { paid: true });
   check('ติ๊กชำระอีกครั้ง → รอเปลี่ยนอัตรา Low', r.body.status === 'ready', JSON.stringify(r.body));
 
-  r = await call(f1, 'POST', `/api/applications/${id}/low-rate`, { low_effective_date: '2026-12-01', low_letter_no: 'ทดสอบ 1/2569' });
+  r = await call(f1, 'POST', `/api/applications/${id}/low-rate`, { low_effective_date: '2026-12-01' });
+  check('ยังไม่ติ๊กข้อตกลงแก้ไขสัญญาซื้อขายไฟฟ้า → ปิดงานไม่ได้', r.status === 400 && /ข้อตกลง/.test(r.body.error || ''), JSON.stringify(r.body));
+  r = await call(f1, 'POST', `/api/applications/${id}/low-rate`, { contract_amended: true, low_effective_date: '2026-12-01' });
   d = (await call(f1, 'GET', `/api/applications/${id}`)).body;
-  check('บันทึกวันที่มีผลอัตรา Low → เสร็จสมบูรณ์', d.status === 'completed' && d.low_effective_date === '2026-12-01', d.status);
+  check('ติ๊กข้อตกลงแล้วบันทึกวันที่มีผลอัตรา Low → เสร็จสมบูรณ์', d.status === 'completed' && d.low_effective_date === '2026-12-01' && d.data.contract_amended?.done === true, d.status);
+  check('ประวัติบันทึกการจัดทำข้อตกลงแก้ไขสัญญา', d.events.some((e) => /ข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้า/.test(e.detail || '')));
   const att = d.attachments.find((t) => t.condition_no === 2);
   r = await call(f1, 'DELETE', `/api/attachments/${att.id}`);
   check('ปิดงานแล้วลบหลักฐานไม่ได้', r.status === 403);
@@ -120,6 +123,26 @@ const multipart = (payload, files = {}) => {
   const csv = await call(admin, 'GET', '/api/applications/export.csv?scope=all');
   check('ส่งออก CSV มีคำร้องใหม่', typeof csv.body === 'string' && csv.body.includes(d.app_no));
   check('CSV มีคอลัมน์ผลทดสอบความปลอดภัย', csv.body.includes('ผลทดสอบความปลอดภัย'));
+  // เอกสารหลักฐานที่เกี่ยวข้อง: ผู้ดูแลระบบจัดการ ทุกบทบาทดาวน์โหลดได้
+  const docForm = (title) => { const fd = new FormData(); fd.append('file', pdf('doc'), 'แบบฟอร์มทดสอบ.pdf'); if (title) fd.append('title', title); fd.append('category', 'conditions'); return fd; };
+  r = await call(f1, 'POST', '/api/documents', docForm('ไม่ควรเพิ่มได้'));
+  check('กฟส. เพิ่มเอกสารหลักฐานไม่ได้ (เฉพาะผู้ดูแลระบบ)', r.status === 403, r.status);
+  r = await call(admin, 'POST', '/api/documents', docForm(''));
+  check('เพิ่มเอกสารโดยไม่ระบุชื่อ → ถูกปฏิเสธ', r.status === 400, JSON.stringify(r.body));
+  r = await call(admin, 'POST', '/api/documents', docForm(`แบบฟอร์มทดสอบ ${stamp}`));
+  const docId = r.body.id;
+  check('ผู้ดูแลระบบเพิ่มเอกสารหลักฐานได้', r.status === 201 && docId, JSON.stringify(r.body));
+  const docs = (await call(tfd, 'GET', '/api/documents')).body;
+  const dl = await fetch(`${B}/api/documents/${docId}/file`, { headers: { cookie: f2 } });
+  check('ทุกบทบาทเห็นรายการและดาวน์โหลดเอกสารได้', docs.some((x) => x.id === docId && x.category === 'conditions') && dl.status === 200
+    && /attachment/.test(dl.headers.get('content-disposition') || ''), `${dl.status}`);
+  r = await call(admin, 'PUT', `/api/documents/${docId}`, { title: 'แก้ชื่อแล้ว', category: 'contract' });
+  const edited = (await call(admin, 'GET', '/api/documents')).body.find((x) => x.id === docId);
+  check('แก้ไขชื่อ/หมวดเอกสารได้', r.status === 200 && edited.title === 'แก้ชื่อแล้ว' && edited.category === 'contract');
+  r = await call(admin, 'DELETE', `/api/documents/${docId}`);
+  const gone = await fetch(`${B}/api/documents/${docId}/file`, { headers: { cookie: admin } });
+  check('ลบเอกสารแล้วดาวน์โหลดไม่ได้', r.status === 200 && gone.status === 404, gone.status);
+
   const stats = (await call(admin, 'GET', '/api/stats')).body;
   check('สรุปสถิติตอบกลับได้', typeof stats.total === 'number' && stats.total >= 1);
 

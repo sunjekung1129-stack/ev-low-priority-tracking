@@ -583,18 +583,25 @@ app.post('/api/applications/:id/cancel', requireAuth, (req, res) => {
 app.post('/api/applications/:id/low-rate', requireAuth, (req, res) => {
   const row = getApp(req.params.id);
   if (!canRecordLow(req.user, row)) fail(403, 'ยังไม่สามารถบันทึกวันที่มีผลอัตรา Low ได้ (เงื่อนไขต้องครบ 3 ข้อ)');
+  // ต้องจัดทำข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้าก่อน จึงบันทึกวันที่มีผลอัตรา Low ได้
+  if (req.body?.contract_amended !== true) fail(400, 'กรุณาติ๊ก “จัดทำข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้าแล้ว” ก่อนบันทึกวันที่มีผลอัตรา Low');
   const date = req.body?.low_effective_date;
   if (!isDate(date)) fail(400, 'กรุณาระบุวันที่มีผลอัตรา Low ให้ถูกต้อง');
-  const note = str(req.body?.note, 1000);
+  // เลขที่หนังสือ/หมายเหตุ: ไม่มีในหน้าจอแล้ว — แก้เฉพาะเมื่อส่งมา ไม่งั้นคงค่าเดิม (เช่น ข้อมูลที่นำเข้าจาก Excel)
+  const has = (k) => req.body && Object.hasOwn(req.body, k);
+  const note = has('note') ? str(req.body.note, 1000) : row.sap_note;
+  const letter = has('low_letter_no') ? str(req.body.low_letter_no, 100) || null : row.low_letter_no;
   const ca = str(req.body?.ca_no, 30);
-  const letter = str(req.body?.low_letter_no, 100);
+  const data = JSON.parse(row.data || '{}');
+  const amendedNow = !data.contract_amended?.done;
+  if (amendedNow) data.contract_amended = { done: true, by: req.user.id, at: now() };
   tx(() => {
     const first = row.status === 'ready';
     db.prepare(`UPDATE applications SET status='completed', low_effective_date=?, low_letter_no=?, sap_note=?, sap_recorded_by=?,
-      completed_at=COALESCE(completed_at, ?), ca_no=COALESCE(NULLIF(?, ''), ca_no), updated_at=? WHERE id=?`)
-      .run(date, letter || null, note, req.user.id, now(), ca, now(), row.id);
+      completed_at=COALESCE(completed_at, ?), ca_no=COALESCE(NULLIF(?, ''), ca_no), data=?, updated_at=? WHERE id=?`)
+      .run(date, letter, note, req.user.id, now(), ca, JSON.stringify(data), now(), row.id);
     logEvent(row.id, req.user.id, first ? 'low_rate' : 'low_rate_edit',
-      `${first ? 'เปลี่ยนอัตรา Low ในระบบ SAP แล้ว' : 'แก้ไขวันที่มีผลอัตรา Low'} — มีผลตั้งแต่ ${thaiDate(date)}${letter ? ` (หนังสือ ${letter})` : ''}${note ? ` ${note}` : ''}`);
+      `${amendedNow ? 'จัดทำข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้าแล้ว · ' : ''}${first ? 'เปลี่ยนอัตรา Low ในระบบ SAP แล้ว' : 'แก้ไขวันที่มีผลอัตรา Low'} — มีผลตั้งแต่ ${thaiDate(date)}`);
     if (first) {
       notify(tfdUsers(), row.id, 'completed', `${row.app_no} ${row.station_name}: เปลี่ยนอัตรา Low แล้ว มีผล ${date}`);
     }
@@ -984,10 +991,80 @@ app.get('/api/google/script', requireAuth, requireRole('admin'), (_req, res) => 
   res.type('text/plain; charset=utf-8').send(googleSync.scriptSource());
 });
 
+// ---------------------------------------------------------------- เอกสารหลักฐานที่เกี่ยวข้อง
+// ทุกบทบาทดู/ดาวน์โหลดได้ · ผู้ดูแลระบบเพิ่ม/แก้ไข/ลบ · ไฟล์เก็บที่ DATA_DIR/docs (ไม่ส่งขึ้น Google)
+const DOC_DIR = path.join(DATA_DIR, 'docs');
+fs.mkdirSync(DOC_DIR, { recursive: true });
+const DOC_CATEGORIES = ['intake', 'conditions', 'safety', 'contract', 'rules', 'other'];
+const docUpload = multer({
+  storage: multer.diskStorage({
+    destination: DOC_DIR,
+    filename: (_req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${path.extname(file.originalname).toLowerCase()}`),
+  }),
+  limits: { fileSize: MAX_FILE_MB * 1024 * 1024, files: 1 },
+  defParamCharset: 'utf8',
+  fileFilter: (_req, file, cb) => {
+    const ok = ALLOWED_EXT.has(path.extname(file.originalname).toLowerCase());
+    cb(ok ? null : new HttpError(400, `ไม่รองรับไฟล์ ${file.originalname} (รองรับ PDF, รูปภาพ, Word, Excel, ZIP)`), ok);
+  },
+});
+const docMeta = (b, current = {}) => {
+  const title = str(b?.title ?? current.title, 300);
+  if (!title) fail(400, 'กรุณาระบุชื่อเอกสาร');
+  const category = DOC_CATEGORIES.includes(b?.category) ? b.category : (current.category || 'other');
+  const sort = Number.isInteger(Number(b?.sort)) && b?.sort !== '' && b?.sort != null ? Number(b.sort) : (current.sort ?? 0);
+  return { title, category, description: str(b?.description ?? current.description, 1000) || null, sort };
+};
+const publicDoc = (d) => ({ id: d.id, title: d.title, category: d.category, description: d.description, original_name: d.original_name,
+  mime: d.mime, size: d.size, sort: d.sort, uploaded_at: d.uploaded_at, uploaded_by_name: d.uploaded_by_name || null });
+
+app.get('/api/documents', requireAuth, (_req, res) => {
+  res.json(db.prepare(`SELECT d.*, u.display_name AS uploaded_by_name FROM documents d LEFT JOIN users u ON u.id = d.uploaded_by
+    ORDER BY d.sort, d.id`).all().map(publicDoc));
+});
+
+app.get('/api/documents/:id/file', requireAuth, (req, res) => {
+  const d = db.prepare('SELECT * FROM documents WHERE id = ?').get(Number(req.params.id));
+  if (!d) fail(404, 'ไม่พบเอกสาร');
+  const full = path.resolve(DOC_DIR, d.stored_name);
+  if (!full.startsWith(path.resolve(DOC_DIR) + path.sep) || !fs.existsSync(full)) fail(404, 'ไม่พบไฟล์ในระบบ');
+  const inline = req.query.inline === '1' && /^(application\/pdf|image\/(png|jpeg))$/.test(d.mime || '');
+  res.setHeader('Content-Disposition', contentDisposition(d.original_name, { type: inline ? 'inline' : 'attachment' }));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.type(d.mime || 'application/octet-stream');
+  fs.createReadStream(full).pipe(res);
+});
+
+app.post('/api/documents', requireAuth, requireRole('admin'), docUpload.single('file'), (req, res) => {
+  const f = req.file;
+  if (!f) fail(400, 'กรุณาเลือกไฟล์เอกสาร');
+  const m = docMeta(req.body);
+  const r = db.prepare(`INSERT INTO documents (title, category, description, stored_name, original_name, mime, size, sort, uploaded_by)
+    VALUES (?,?,?,?,?,?,?,?,?)`).run(m.title, m.category, m.description, path.basename(f.path), f.originalname, f.mimetype, f.size, m.sort, req.user.id);
+  res.status(201).json({ id: Number(r.lastInsertRowid) });
+});
+
+app.put('/api/documents/:id', requireAuth, requireRole('admin'), (req, res) => {
+  const d = db.prepare('SELECT * FROM documents WHERE id = ?').get(Number(req.params.id));
+  if (!d) fail(404, 'ไม่พบเอกสาร');
+  const m = docMeta(req.body, d);
+  db.prepare('UPDATE documents SET title = ?, category = ?, description = ?, sort = ? WHERE id = ?').run(m.title, m.category, m.description, m.sort, d.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/documents/:id', requireAuth, requireRole('admin'), (req, res) => {
+  const d = db.prepare('SELECT * FROM documents WHERE id = ?').get(Number(req.params.id));
+  if (!d) fail(404, 'ไม่พบเอกสาร');
+  db.prepare('DELETE FROM documents WHERE id = ?').run(d.id);
+  fs.rm(path.resolve(DOC_DIR, d.stored_name), { force: true }, () => {});
+  res.json({ ok: true });
+});
+
 // ---------------------------------------------------------------- errors
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'ไม่พบ API')));
 app.use((err, req, res, _next) => {
   const uploaded = Array.isArray(req.files) ? req.files : Object.values(req.files || {}).flat();
+  if (req.file) uploaded.push(req.file); // อัปโหลดไฟล์เดี่ยว (เอกสารหลักฐาน)
   for (const f of uploaded) fs.rm(f.path, { force: true }, () => {});
   if (err instanceof multer.MulterError) {
     const msg = err.code === 'LIMIT_FILE_SIZE' ? `ไฟล์มีขนาดเกิน ${MAX_FILE_MB} MB` : `อัปโหลดไม่สำเร็จ (${err.code})`;

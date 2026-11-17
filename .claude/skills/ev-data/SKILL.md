@@ -47,6 +47,16 @@ node .claude/skills/ev-data/scripts/delete-app.js "<app_no>" --yes              
 
 Without `--yes` it lists the matches with their attachments, events and invoices. With `--yes` it needs exactly one match, takes a backup, deletes the application (attachments, events, notifications and invoices cascade), and removes `data/uploads/<id>`. Files already pushed to Google Drive are queued to the trash. **The row in the Google Sheet is not removed**, so tell the user to delete that row by hand.
 
+## Add a document to "เอกสารหลักฐานที่เกี่ยวข้อง"
+
+Admins can upload forms in the app. To add a file the user gives you (a PDF in Downloads, say), copy it into its own folder first, then run:
+
+```bash
+node scripts/add-document.js "<file>" --title "ชื่อเอกสาร" --category intake|conditions|safety|contract|rules|other --desc "ใช้เมื่อ..." --name "ชื่อไฟล์ตอนดาวน์โหลด.pdf" --sort 5
+```
+
+Files are copied to `data/docs/` and a row is added to `documents`. A title that already exists is skipped. These files often carry internal watermarks (staff names) or internal letters, so never add them to git, the Google Drive sync, or the demo site.
+
 ## Look things up
 
 For quick read-only questions ("how many completed?", "which ones are missing condition 3?"), query with node:

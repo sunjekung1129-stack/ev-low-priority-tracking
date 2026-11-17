@@ -156,6 +156,21 @@ CREATE TABLE IF NOT EXISTS sync_queue (
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   UNIQUE (kind, ref)
 );
+
+-- เอกสารหลักฐานที่เกี่ยวข้อง (แบบฟอร์ม/ระเบียบ/ข้อตกลง) ให้ทุกคนดาวน์โหลด — ผู้ดูแลระบบจัดการ ไฟล์อยู่ที่ DATA_DIR/docs
+CREATE TABLE IF NOT EXISTS documents (
+  id            INTEGER PRIMARY KEY,
+  title         TEXT NOT NULL,
+  category      TEXT NOT NULL DEFAULT 'other',
+  description   TEXT,
+  stored_name   TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  mime          TEXT,
+  size          INTEGER,
+  sort          INTEGER NOT NULL DEFAULT 0,
+  uploaded_by   INTEGER REFERENCES users(id),
+  uploaded_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
 `);
 
 // กฟข. ทั้ง 12 เขต (ตัวเลขนำหน้าใช้เรียงลำดับ: 1 เหนือ, 2 ตะวันออกเฉียงเหนือ, 3 กลาง, 4 ใต้)

@@ -263,6 +263,7 @@ function renderShell() {
   if (!u) return;
   const links = [['#/', 'map', 'ภาพรวมและแผนที่'], ['#/list', 'grid', 'รายการคำร้อง']];
   if (canCreate(u)) links.push(['#/new', 'plus', 'รับคำร้องใหม่']);
+  links.push(['#/docs', 'folder', 'เอกสารหลักฐานที่เกี่ยวข้อง']);
   if (u.role === 'admin') {
     links.push(['#/users', 'users', 'ผู้ใช้งาน'], ['#/offices', 'building', 'การไฟฟ้า (กฟส.)'], ['#/google', 'cloud', 'เชื่อมต่อ Google']);
   }
@@ -317,6 +318,7 @@ async function route() {
     else if (hash === '#/new') { setActiveNav('#/new'); await renderForm(null); }
     else if ((m = hash.match(/^#\/app\/(\d+)\/edit$/))) { setActiveNav(''); await renderForm(Number(m[1])); }
     else if ((m = hash.match(/^#\/app\/(\d+)$/))) { setActiveNav(''); await renderDetail(Number(m[1])); }
+    else if (hash === '#/docs') { setActiveNav('#/docs'); await renderDocuments(); }
     else if (hash === '#/users') { setActiveNav('#/users'); await renderUsers(); }
     else if (hash === '#/offices') { setActiveNav('#/offices'); await renderOffices(); }
     else if (hash === '#/google') { setActiveNav('#/google'); await renderGoogle(); }
@@ -1201,15 +1203,29 @@ async function renderDetail(id, tab) {
     catch (err) { toast(err.message, true); }
   }));
 
-  $('#lowForm')?.addEventListener('submit', async (e) => {
+  // ติ๊ก "จัดทำข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้าแล้ว" ก่อน จึงใส่วันที่และปิดงานได้
+  const lowForm = $('#lowForm');
+  if (lowForm) {
+    const cb = lowForm.elements.contract_amended; const dt = lowForm.elements.low_effective_date; const btn = $('button.btn-success', lowForm);
+    const sync = () => {
+      dt.disabled = !cb.checked;
+      if (!cb.checked) dt.value = '';
+      btn.disabled = !(cb.checked && dt.value);
+      cb.closest('.paid-check').classList.toggle('on', cb.checked);
+    };
+    cb.addEventListener('change', () => { sync(); if (cb.checked) dt.focus(); });
+    dt.addEventListener('input', sync);
+    sync();
+  }
+  lowForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
+    if (!f.elements.contract_amended.checked) { toast('กรุณาติ๊ก “จัดทำข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้าแล้ว” ก่อน', true); return; }
     if (!f.elements.low_effective_date.value) { toast('กรุณาระบุวันที่มีผลอัตรา Low', true); return; }
-    if (!confirm(`ยืนยันว่าเปลี่ยนอัตรา Low ในระบบ SAP แล้ว โดยมีผลตั้งแต่ ${fmtDate(f.elements.low_effective_date.value)} ?`)) return;
+    if (!confirm(`ยืนยันว่าจัดทำข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้าแล้ว และเปลี่ยนอัตรา Low ในระบบ SAP แล้ว โดยมีผลตั้งแต่ ${fmtDate(f.elements.low_effective_date.value)} ?`)) return;
     try {
       await api('POST', `/api/applications/${a.id}/low-rate`, {
-        low_effective_date: f.elements.low_effective_date.value, low_letter_no: f.elements.low_letter_no.value,
-        note: f.elements.note.value,
+        contract_amended: true, low_effective_date: f.elements.low_effective_date.value,
       });
       toast('บันทึกแล้ว คำร้องเสร็จสมบูรณ์');
       reload();
@@ -1218,11 +1234,11 @@ async function renderDetail(id, tab) {
 
   $('#editLowBtn')?.addEventListener('click', () => openDialog(`
     <h2>แก้ไขข้อมูลการเปลี่ยนอัตรา Low</h2>
-    <label class="field"><span class="req">วันที่มีผลอัตรา Low</span><input type="date" name="d" value="${esc(a.low_effective_date)}" required></label>
-    <label class="field"><span>เลขที่หนังสือเปลี่ยนอัตรา</span><input type="text" name="letter" value="${esc(a.low_letter_no)}"></label>
-    <label class="field"><span>หมายเหตุ</span><input type="text" name="note" value="${esc(a.sap_note)}"></label>
+    <label class="paid-check contract-check ${a.data?.contract_amended?.done ? 'on' : ''}" style="margin-bottom:14px"><input type="checkbox" name="amended" required ${a.data?.contract_amended?.done ? 'checked' : ''}>
+      <span class="req">จัดทำข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้าแล้ว</span></label>
+    <label class="field"><span class="req">วันที่มีผลอัตรา Low Priority</span><input type="date" name="d" value="${esc(a.low_effective_date)}" required></label>
     ${dlgActions('บันทึก')}`, async (fd) => {
-    await api('POST', `/api/applications/${a.id}/low-rate`, { low_effective_date: fd.get('d'), low_letter_no: fd.get('letter'), note: fd.get('note') });
+    await api('POST', `/api/applications/${a.id}/low-rate`, { contract_amended: fd.get('amended') === 'on', low_effective_date: fd.get('d') });
     toast('แก้ไขแล้ว'); reload();
   }));
 
@@ -1263,15 +1279,15 @@ function actionPanel(a, doneCount) {
       <div class="body"><h2>ครบเงื่อนไขทั้ง 3 ข้อแล้ว · เปลี่ยนอัตรา Low ในระบบ SAP</h2>
         <p class="muted">ครบเงื่อนไขเมื่อ ${fmtDateTime(a.ready_at)} · เปลี่ยนอัตราใน SAP แล้วบันทึกวันที่มีผลด้านล่างเพื่อปิดงาน</p>
         <div class="sap-form">
-          <label class="field"><span class="req">วันที่มีผลอัตรา Low</span><input type="date" name="low_effective_date" required></label>
-          <label class="field"><span>เลขที่หนังสือเปลี่ยนอัตรา</span><input type="text" name="low_letter_no" placeholder="เช่น กกล.(งบ) 688/2566"></label>
-          <label class="field span2"><span>หมายเหตุ</span><input type="text" name="note" placeholder="เช่น เลขที่เอกสารใน SAP"></label>
-          <button class="btn btn-success">${icon('check')}บันทึก · ปิดงาน</button>
+          <label class="paid-check contract-check"><input type="checkbox" name="contract_amended">
+            <span><span class="req">จัดทำข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้าแล้ว</span><small>ติ๊กก่อน จึงจะใส่วันที่มีผลอัตรา Low ได้</small></span></label>
+          <label class="field"><span class="req">วันที่มีผลอัตรา Low Priority</span><input type="date" name="low_effective_date" required disabled></label>
+          <button class="btn btn-success" disabled>${icon('check')}บันทึก · ปิดงาน</button>
         </div></div></form>`;
   }
   return `<div class="action-panel done"><span class="ico">${icon('checkCircle', 'i-lg')}</span>
     <div class="body"><h2>ได้รับอัตรา Low Priority แล้ว · มีผลตั้งแต่ ${fmtDate(a.low_effective_date)}</h2>
-      <p class="muted">${a.low_letter_no ? `หนังสือเปลี่ยนอัตรา ${esc(a.low_letter_no)} · ` : ''}${a.sap_recorded_by_name ? `บันทึกโดย ${esc(a.sap_recorded_by_name)} · ${fmtDateTime(a.completed_at)}` : 'นำเข้าจาก Excel'}${a.sap_note ? ` · ${esc(a.sap_note)}` : ''}</p></div>
+      <p class="muted">${a.data?.contract_amended?.done ? 'จัดทำข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้าแล้ว · ' : ''}${a.low_letter_no ? `หนังสือเปลี่ยนอัตรา ${esc(a.low_letter_no)} · ` : ''}${a.sap_recorded_by_name ? `บันทึกโดย ${esc(a.sap_recorded_by_name)} · ${fmtDateTime(a.completed_at)}` : 'นำเข้าจาก Excel'}${a.sap_note ? ` · ${esc(a.sap_note)}` : ''}</p></div>
     ${a.permissions.record_low ? `<button class="btn btn-sm no-print" id="editLowBtn">${icon('edit', 'i-sm')}แก้ไข</button>` : ''}</div>`;
 }
 
@@ -1487,6 +1503,95 @@ function renderReadonly(a) {
 }
 
 // ============================================================ users (admin)
+// ============================================================ เอกสารหลักฐานที่เกี่ยวข้อง
+const DOC_CATS = [
+  ['intake', 'รับคำร้องขอใช้ไฟฟ้า', 'แบบฟอร์มที่ผู้ขอใช้ไฟฟ้ากรอกและแนบตอนยื่นคำร้อง'],
+  ['conditions', 'ตรวจสอบเงื่อนไข 1–3', 'แบบฟอร์มตรวจสอบการติดตั้งระบบอัดประจุยานยนต์ไฟฟ้าก่อนติดตั้งมิเตอร์ และเอกสารประกอบเงื่อนไข'],
+  ['safety', 'ทดสอบความปลอดภัย', 'มาตรฐานและแบบฟอร์มผลการตรวจวัดทดสอบความปลอดภัย'],
+  ['contract', 'เปลี่ยนอัตรา Low Priority / สัญญา', 'ข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้า (ทำก่อนบันทึกวันที่มีผลอัตรา Low)'],
+  ['rules', 'ระเบียบ / ประกาศ / หนังสือสั่งการ', 'หลักเกณฑ์และอัตราค่าไฟฟ้า Low Priority'],
+  ['other', 'อื่นๆ', ''],
+];
+const docExt = (name) => (String(name).split('.').pop() || '').toUpperCase().slice(0, 4);
+
+async function renderDocuments() {
+  const u = state.user;
+  const seq = routeSeq;
+  const docs = await api('GET', '/api/documents');
+  if (isStale(seq)) return;
+  setCrumbs([['เอกสารหลักฐานที่เกี่ยวข้อง', '#/docs']]);
+  const admin = u.role === 'admin';
+  const groups = DOC_CATS.map(([k, t, d]) => ({ k, t, d, list: docs.filter((x) => x.category === k) })).filter((g) => g.list.length);
+  const item = (x) => {
+    const viewable = /^(application\/pdf|image\/(png|jpeg))$/.test(x.mime || '');
+    return `<li class="doc-item">
+      <span class="doc-ext ${docExt(x.original_name) === 'PDF' ? 'pdf' : ''}">${esc(docExt(x.original_name) || 'FILE')}</span>
+      <div class="doc-main">
+        <div class="t">${viewable ? `<a href="/api/documents/${x.id}/file?inline=1" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)}</div>
+        ${x.description ? `<div class="d">${esc(x.description)}</div>` : ''}
+        <div class="m"><span>${esc(x.original_name)}</span><span>${fmtSize(x.size || 0)}</span>${admin ? `<span>เพิ่มเมื่อ ${fmtDateTime(x.uploaded_at)}</span>` : ''}</div>
+      </div>
+      <div class="doc-actions">
+        ${viewable ? `<a class="btn btn-sm" href="/api/documents/${x.id}/file?inline=1" target="_blank" rel="noopener">${icon('external', 'i-sm')}เปิดดู</a>` : ''}
+        <a class="btn btn-sm btn-primary" href="/api/documents/${x.id}/file">${icon('download', 'i-sm')}ดาวน์โหลด</a>
+        ${admin ? `<button class="btn btn-ghost btn-icon" data-edit-doc="${x.id}" title="แก้ไข" aria-label="แก้ไข">${icon('edit', 'i-sm')}</button>
+          <button class="btn btn-ghost btn-icon" data-del-doc="${x.id}" title="ลบ" aria-label="ลบ">${icon('trash', 'i-sm')}</button>` : ''}
+      </div>
+    </li>`;
+  };
+
+  view().innerHTML = `
+    <div class="page-head">
+      <div><h1>เอกสารหลักฐานที่เกี่ยวข้อง</h1>
+        <p>แบบฟอร์ม ข้อตกลง และระเบียบที่ใช้ในงาน EV Low Priority · ทุกคนเปิดดูและดาวน์โหลดได้</p></div>
+      ${admin ? `<div class="row"><button class="btn btn-primary" id="addDocBtn">${icon('plus')}เพิ่มเอกสาร</button></div>` : ''}
+    </div>
+    ${groups.length ? groups.map((g) => `
+      <section class="card doc-sec">
+        <div class="card-head"><h2>${icon('folder')}${esc(g.t)}</h2>${g.d ? `<span class="muted small">${esc(g.d)}</span>` : ''}</div>
+        <ul class="doc-list">${g.list.map(item).join('')}</ul>
+      </section>`).join('')
+    : `<div class="card"><div class="empty">${icon('folder')}<div>ยังไม่มีเอกสาร</div>
+        ${admin ? '<p class="muted small">กด “เพิ่มเอกสาร” เพื่ออัปโหลดแบบฟอร์มหรือระเบียบที่ทีมต้องใช้</p>' : ''}</div></div>`}`;
+
+  const reload = () => renderDocuments().catch((err) => toast(err.message, true));
+  const docDialog = (d) => {
+    const form = openDialog(`
+      <h2>${d ? 'แก้ไขเอกสาร' : 'เพิ่มเอกสาร'}</h2>
+      ${d ? `<p class="muted small">${esc(d.original_name)}</p>` : `<label class="field"><span class="req">ไฟล์</span>
+        <input type="file" name="file" required accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.zip"></label>`}
+      <label class="field"><span class="req">ชื่อเอกสาร</span><input type="text" name="title" required maxlength="300" value="${esc(d?.title)}"
+        placeholder="เช่น แบบฟอร์มตรวจสอบการติดตั้งระบบอัดประจุยานยนต์ไฟฟ้า (แรงต่ำ)"></label>
+      <label class="field"><span>หมวด</span><select name="category">${DOC_CATS.map(([k, t]) => `<option value="${k}" ${(d?.category || 'other') === k ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+      <label class="field"><span>คำอธิบาย</span><textarea name="description" rows="2" maxlength="1000" placeholder="เช่น ใช้เมื่อผู้ใช้ไฟฟ้ารับไฟแรงต่ำจากหม้อแปลงของ กฟภ.">${esc(d?.description)}</textarea></label>
+      <label class="field"><span>ลำดับการแสดง</span><input type="number" name="sort" step="1" value="${esc(d?.sort ?? 0)}"></label>
+      ${dlgActions(d ? 'บันทึก' : 'อัปโหลด')}`, async (fd) => {
+      if (d) {
+        await api('PUT', `/api/documents/${d.id}`, Object.fromEntries(['title', 'category', 'description', 'sort'].map((k) => [k, fd.get(k)])));
+        toast('บันทึกแล้ว');
+      } else {
+        if (!fd.get('file')?.size) throw new Error('กรุณาเลือกไฟล์');
+        await api('POST', '/api/documents', fd);
+        toast('เพิ่มเอกสารแล้ว');
+      }
+      reload();
+    });
+    // เลือกไฟล์แล้วเติมชื่อเอกสารจากชื่อไฟล์ให้ (ถ้ายังว่าง)
+    const fileInput = $('input[name=file]', form);
+    fileInput?.addEventListener('change', () => {
+      const t = form.elements.title;
+      if (!t.value && fileInput.files[0]) t.value = fileInput.files[0].name.replace(/\.[^.]+$/, '');
+    });
+  };
+  $('#addDocBtn')?.addEventListener('click', () => docDialog(null));
+  $$('[data-edit-doc]').forEach((b) => b.addEventListener('click', () => docDialog(docs.find((x) => x.id === Number(b.dataset.editDoc)))));
+  $$('[data-del-doc]').forEach((b) => b.addEventListener('click', async () => {
+    const d = docs.find((x) => x.id === Number(b.dataset.delDoc));
+    if (!confirm(`ลบเอกสาร "${d.title}" ?`)) return;
+    try { await api('DELETE', `/api/documents/${d.id}`); toast('ลบแล้ว'); reload(); } catch (err) { toast(err.message, true); }
+  }));
+}
+
 async function renderUsers() {
   if (state.user.role !== 'admin') throw new Error('ไม่มีสิทธิ์เข้าถึง');
   const seq = routeSeq;

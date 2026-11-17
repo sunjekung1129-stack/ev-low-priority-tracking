@@ -156,7 +156,7 @@ async function seedData() {
     if (kind !== 'c1' && rnd() < 0.85) await ev(4, { result: rnd() < 0.8 ? 'pass' : 'fail', note: 'IEC 60364-6 / IEC 61851 (ข้อมูลสมมติ)' });
     if (kind === 'completed') {
       const low = addDays(requestDate, Math.min(age - 3, int(60, 400)));
-      await call(admin, 'POST', `/api/applications/${id}/low-rate`, { low_effective_date: low, low_letter_no: `ตัวอย่าง ${int(100, 999)}/${Number(low.slice(0, 4)) + 543}` });
+      await call(admin, 'POST', `/api/applications/${id}/low-rate`, { contract_amended: true, low_effective_date: low });
     }
   }
   return created;
