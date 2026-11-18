@@ -139,10 +139,11 @@ function getApp(id) {
 
 const sameOffice = (user, row) => user.role === 'field' && user.office === row.office;
 const sameRegion = (user, row) => user.role === 'region' && !!row.region && user.office === row.region;
-// ทุกบทบาทดูคำร้องได้ทั้งหมด แต่บันทึก/แก้ไขได้เฉพาะพื้นที่ตนเอง (กฟส. ห้ามข้าม กฟส., กบล. ห้ามข้ามเขต)
-const canView = () => true;
+// กฟส. ดู/บันทึกได้เฉพาะคำร้องของ กฟส. ตนเอง, กบล. เฉพาะในเขตตนเอง; กทฟ./ผู้ดูแลระบบ ทุกพื้นที่
+// (ภาพรวมทั่วประเทศดูได้เฉพาะตัวเลขสรุปและหมุดบนแผนที่ที่ไม่มีรายละเอียด — /api/stats?scope=all, /api/map)
 const inArea = (user, row) =>
   (user.role === 'field' ? sameOffice(user, row) : user.role === 'region' ? sameRegion(user, row) : true);
+const canView = inArea;
 const isOpen = (row) => row.status === 'pending' || row.status === 'ready';
 const canEditForm = (user, row) =>
   (user.role === 'admin' && row.status !== 'cancelled') || (sameOffice(user, row) && isOpen(row));
@@ -319,9 +320,10 @@ function normalizeForm(body) {
   return { cols, data, errors };
 }
 
-// ขอบเขตรายการ: กฟส./กบล. เริ่มต้นที่ "พื้นที่ของฉัน" และเลือกดูทั้งหมดได้ (scope=all)
-function scopeWhere(user, params, scope) {
-  if (scope === 'all') return '1=1';
+// ขอบเขตข้อมูล: รายการคำร้อง/CSV ของ กฟส./กบล. เป็นพื้นที่ตนเองเสมอ
+// scope=all ใช้ได้เฉพาะตัวเลขสรุป (/api/stats) — ส่ง allowAll = true
+function scopeWhere(user, params, scope, allowAll = false) {
+  if (scope === 'all' && allowAll) return '1=1';
   if (user.role === 'field') {
     params.push(user.office);
     return 'a.office = ?';
@@ -390,7 +392,7 @@ function listApplications(user, q = {}) {
 // ---------------------------------------------------------------- applications
 app.get('/api/stats', requireAuth, (req, res) => {
   const params = [];
-  const scope = scopeWhere(req.user, params, req.query.scope);
+  const scope = scopeWhere(req.user, params, req.query.scope, true);
   const counts = db.prepare(`SELECT a.status, COUNT(*) AS n FROM applications a WHERE ${scope} GROUP BY a.status`).all(...params);
   const by = Object.fromEntries(counts.map((r) => [r.status, r.n]));
   const missing = {};
@@ -422,6 +424,18 @@ app.get('/api/lookups', requireAuth, (_req, res) => {
 });
 
 app.get('/api/applications', requireAuth, (req, res) => res.json(listApplications(req.user, req.query)));
+
+// หมุดแผนที่ทั่วประเทศ: คำร้องในพื้นที่ตนเองมีรายละเอียดและลิงก์, พื้นที่อื่นมีเฉพาะพิกัด/สถานะ/กฟส./จังหวัด (ไม่มี id ชื่อสถานี ผู้ขอใช้ไฟฟ้า)
+app.get('/api/map', requireAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT a.id, a.app_no, a.office, a.region, a.province, a.station_name, a.company, a.applicant_name, a.status,
+           a.low_effective_date, a.lat, a.lng, ${MET(1)} AS c1, ${MET(2)} AS c2, ${MET(3)} AS c3, ${PAID()} AS paid
+    FROM applications a WHERE a.lat IS NOT NULL AND a.lng IS NOT NULL`).all();
+  const all = req.query.scope === 'all';
+  res.json(rows.filter((r) => all || inArea(req.user, r)).map((r) => (inArea(req.user, r)
+    ? { ...r, mine: true, c1: !!r.c1, c2: !!r.c2, c3: !!r.c3, paid: !!r.paid }
+    : { mine: false, office: r.office, region: r.region, province: r.province, status: r.status, lat: r.lat, lng: r.lng })));
+});
 
 app.get('/api/applications/export.csv', requireAuth, (req, res) => {
   const STATUS = { pending: 'รอเงื่อนไข', ready: 'รอเปลี่ยนอัตราใน SAP', completed: 'เสร็จสมบูรณ์', cancelled: 'ยกเลิก' };
@@ -509,7 +523,7 @@ app.post('/api/applications', requireAuth, requireRole('field', 'admin'), intake
 
 app.get('/api/applications/:id', requireAuth, (req, res) => {
   const row = getApp(req.params.id);
-  if (!canView(req.user, row)) fail(403, 'ไม่มีสิทธิ์ดูคำร้องนี้');
+  if (!canView(req.user, row)) fail(403, 'คำร้องนี้อยู่นอกพื้นที่ของคุณ — เปิดดูรายละเอียดได้เฉพาะคำร้องใน กฟส. หรือเขตของตนเอง');
   const attachments = db.prepare(`
     SELECT t.id, t.condition_no, t.original_name, t.mime, t.size, t.url, t.doc_no, t.doc_date, t.result, t.note, t.drive_url,
            t.uploaded_at, t.uploaded_by, t.stored_name IS NOT NULL AS has_file,
@@ -704,7 +718,7 @@ app.post('/api/applications/:id/evidence', requireAuth, checkUploadPermission, (
 app.get('/api/attachments/:id', requireAuth, (req, res) => {
   const att = db.prepare('SELECT * FROM attachments WHERE id = ?').get(Number(req.params.id));
   if (!att) fail(404, 'ไม่พบไฟล์');
-  if (!canView(req.user, getApp(att.application_id))) fail(403, 'ไม่มีสิทธิ์เปิดไฟล์นี้');
+  if (!canView(req.user, getApp(att.application_id))) fail(403, 'ไฟล์นี้เป็นของคำร้องนอกพื้นที่ของคุณ');
   if (!att.stored_name) fail(404, 'หลักฐานนี้ไม่มีไฟล์แนบ');
   const full = path.resolve(UPLOAD_DIR, att.stored_name);
   if (!full.startsWith(path.resolve(UPLOAD_DIR) + path.sep) || !fs.existsSync(full)) fail(404, 'ไม่พบไฟล์ในระบบ');

@@ -42,7 +42,7 @@ const browsers = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/P
   await page.goto(`${base}/#/login`, { waitUntil: 'networkidle0' });
   await page.type('input[name=username]', user);
   await page.type('input[name=password]', password);
-  await Promise.all([page.click('#loginForm button'), page.waitForSelector('#app > *', { timeout: 10000 })]);
+  await Promise.all([page.click('#loginForm button[type=submit], #loginForm .lc-submit'), page.waitForSelector('#app > *', { timeout: 10000 })]);
   await wait(800);
 
   const saved = [];
@@ -50,7 +50,7 @@ const browsers = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/P
     let hash = route;
     if (route.startsWith('app')) {
       const id = route.includes(':') ? route.split(':')[1]
-        : await page.evaluate(async () => (await (await fetch('/api/applications?scope=all')).json())[0]?.id);
+        : await page.evaluate(async () => (await (await fetch('/api/applications')).json())[0]?.id);
       if (!id) { errors.push('ไม่มีคำร้องให้เปิด'); continue; }
       hash = `#/app/${id}`;
     }

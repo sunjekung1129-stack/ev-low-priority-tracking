@@ -35,7 +35,7 @@ Check it is up: `node .claude/skills/ev-server/scripts/status.js 3999`.
 node .claude/skills/ev-verify/scripts/smoke.js http://localhost:3999
 ```
 
-It runs about 25 checks covering intake (required PDF, CA, Meter; กฟส./กฟข. derived from the account), viewing other areas read-only, edit rights limited to the user's own area, conditions 1–3 incl. "ไม่ผ่าน" not counting, the ready notification, กบล. safety results, test-fee request numbers (12 digits, unique, CPO 2,400/6,500), closing with the Low date, the scope toggle, CSV, and stats. Exit code 1 means something failed. Read the ✗ lines. When you add a feature, add a check for it here.
+It runs about 25 checks covering intake (required PDF, CA, Meter; กฟส./กฟข. derived from the account), viewing limited to the user's own area (other areas get 403; nationwide only as stats and anonymous map pins), edit rights limited to the user's own area, conditions 1–3 incl. "ไม่ผ่าน" not counting, the ready notification, กบล. safety results, test-fee request numbers (12 digits, unique, CPO 2,400/6,500), closing with the Low date, list/CSV scope, and stats. Exit code 1 means something failed. Read the ✗ lines. When you add a feature, add a check for it here.
 
 ## 4. Look at the pages
 

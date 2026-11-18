@@ -134,18 +134,19 @@ const ICONS = {
 const icon = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 
 // ============================================================ utils
-const state = { user: null, lookups: { offices: [], regions: [], provinces: [] }, filter: { status: '', q: '', office: '', region: '', missing: '', scope: 'mine' } };
-// กฟส./กบล. มี "พื้นที่ของตนเอง" — ดูทั้งหมดได้ แต่เริ่มต้นที่พื้นที่ของตน
+const state = { user: null, lookups: { offices: [], regions: [], provinces: [] }, mapScope: 'all', filter: { status: '', q: '', office: '', region: '', missing: '' } };
+// กฟส./กบล. มี "พื้นที่ของตนเอง": รายการคำร้องเห็นเฉพาะพื้นที่ตน, ภาพรวมทั่วประเทศเห็นเฉพาะตัวเลข/หมุดที่ไม่มีรายละเอียด
 const hasArea = (u) => u.role === 'field' || u.role === 'region';
-const showingAll = (u) => !hasArea(u) || state.filter.scope === 'all';
+const showingAll = (u) => !hasArea(u);
 const areaLabel = (u) => (showingAll(u) ? 'ทุกการไฟฟ้า' : scopeLabel(u));
+const mapNational = (u) => !hasArea(u) || state.mapScope === 'all';
 const scopeToggle = (u) => (hasArea(u) ? `<div class="seg scope-seg" role="group" aria-label="ขอบเขตข้อมูล">
-  <button data-scope="mine" class="${state.filter.scope !== 'all' ? 'on' : ''}">${icon('pin', 'i-sm')}พื้นที่ของฉัน</button>
-  <button data-scope="all" class="${state.filter.scope === 'all' ? 'on' : ''}">${icon('map', 'i-sm')}ทั้งหมด</button></div>` : '');
+  <button data-scope="all" class="${state.mapScope === 'all' ? 'on' : ''}">${icon('map', 'i-sm')}ทั่วประเทศ</button>
+  <button data-scope="mine" class="${state.mapScope !== 'all' ? 'on' : ''}">${icon('pin', 'i-sm')}พื้นที่ของฉัน</button></div>` : '');
 function bindScopeToggle(rerender) {
   $$('[data-scope]').forEach((b) => b.addEventListener('click', () => {
-    if (state.filter.scope === b.dataset.scope) return;
-    Object.assign(state.filter, { scope: b.dataset.scope, office: '', region: '' });
+    if (state.mapScope === b.dataset.scope) return;
+    state.mapScope = b.dataset.scope;
     rerender();
   }));
 }
@@ -434,21 +435,23 @@ function renderLogin() {
 
 // ============================================================ map (หน้าแรก)
 // 4 ช่องสรุปตามสถานะ (กดเพื่อเปิดรายการคำร้องตามสถานะ)
-function statusKpis(stats, u) {
+// clickable = false: ตัวเลขทั่วประเทศของ กฟส./กบล. ดูได้อย่างเดียว ไม่เปิดไปรายการคำร้อง
+function statusKpis(stats, u, label = areaLabel(u), clickable = true) {
   const kpis = [
-    ['', 'คำร้องทั้งหมด', stats.total, 'list', 'brand', esc(areaLabel(u))],
+    ['', 'คำร้องทั้งหมด', stats.total, 'list', 'brand', esc(label)],
     ['pending', 'รอเงื่อนไข', stats.pending, 'clock', 'pending',
       stats.pending ? `ค้างชำระ ${stats.missing.payment} · ① ${stats.missing[1]} · ② ${stats.missing[2]} · ③ ${stats.missing[3]}` : 'ไม่มีงานค้าง'],
     ['ready', 'รอเปลี่ยนอัตรา Low (SAP)', stats.ready, 'zap', 'ready', 'ครบ 3 เงื่อนไขแล้ว'],
     ['completed', STATUS.completed.long, stats.completed, 'checkCircle', 'done',
       stats.avg_days_to_complete != null ? `เฉลี่ย ${fmtNum(stats.avg_days_to_complete)} วัน ตั้งแต่ยื่นคำร้อง` : ''],
   ];
-  return `<div class="kpis">${kpis.map(([k, label, n, ic, tone, sub]) => `
-      <button class="kpi" data-status="${k}">
-        <div class="kpi-top"><span class="kpi-label">${esc(label)}</span><span class="kpi-ico ${tone}">${icon(ic)}</span></div>
+  const tag = clickable ? 'button' : 'div';
+  return `<div class="kpis">${kpis.map(([k, title, n, ic, tone, sub]) => `
+      <${tag} class="kpi${clickable ? '' : ' static'}"${clickable ? ` data-status="${k}"` : ''}>
+        <div class="kpi-top"><span class="kpi-label">${esc(title)}</span><span class="kpi-ico ${tone}">${icon(ic)}</span></div>
         <div class="kpi-value">${fmtNum(n)}</div>
         <div class="kpi-sub">${sub}</div>
-      </button>`).join('')}
+      </${tag}>`).join('')}
     </div>`;
 }
 // แถบความคืบหน้าทั้งหมด (ไม่นับคำร้องที่ยกเลิก) — กดคำอธิบายเพื่อกรองตามสถานะ
@@ -473,29 +476,33 @@ function progressCard(stats) {
 async function renderMap() {
   const u = state.user;
   const seq = routeSeq;
-  const [rows, stats] = await Promise.all([api('GET', `/api/applications?scope=${state.filter.scope}`),
-    api('GET', `/api/stats?scope=${state.filter.scope}`)]);
+  const national = mapNational(u);
+  const scope = national ? 'all' : 'mine';
+  const [located, stats] = await Promise.all([api('GET', `/api/map?scope=${scope}`), api('GET', `/api/stats?scope=${scope}`)]);
   if (isStale(seq)) return;
   setCrumbs([['ภาพรวม', '#/']]);
 
-  const located = rows.filter((r) => r.lat != null && r.lng != null);
   const counts = Object.fromEntries(Object.keys(STATUS).map((k) => [k, located.filter((r) => r.status === k).length]));
   const hidden = new Set(state.mapHidden || []);
+  const label = national ? 'ทั่วประเทศ' : scopeLabel(u);
+  const lockedView = hasArea(u) && national; // ตัวเลขทั่วประเทศ: ดูได้อย่างเดียว
+  const noCoord = stats.total - located.length;
 
   view().innerHTML = `
     <div class="page-head">
       <div><h1>ภาพรวมสถานีอัดประจุไฟฟ้า EV Low Priority</h1>
-        <p>${esc(areaLabel(u))} · ข้อมูล ณ ${fmtDate(todayISO())}</p></div>
+        <p>${esc(label)} · ข้อมูล ณ ${fmtDate(todayISO())}</p></div>
       <div class="row">${scopeToggle(u)}
       ${canCreate(u) ? `<a class="btn btn-primary" href="#/new">${icon('plus')}รับคำร้องใหม่</a>` : ''}</div>
     </div>
 
-    ${statusKpis(stats, u)}
+    ${statusKpis(stats, u, label, !lockedView)}
+    ${lockedView ? `<div class="scope-note">${icon('info', 'i-sm')}<span>ตัวเลขและหมุดทั่วประเทศแสดงเพื่อภาพรวม — เปิดดูรายละเอียดได้เฉพาะคำร้องของ ${esc(scopeLabel(u))} ที่แท็บ “<a href="#/list">รายการคำร้อง</a>”</span></div>` : ''}
 
     <section class="card ov-map">
       <div class="card-head"><h2>${icon('map')}แผนที่สถานี</h2>
-        <span class="muted small">${fmtNum(located.length)} สถานีที่มีพิกัด${rows.length > located.length
-          ? ` · <a href="#/list">ไม่มีพิกัด ${fmtNum(rows.length - located.length)} รายการ</a>` : ''}</span></div>
+        <span class="muted small">${fmtNum(located.length)} สถานีที่มีพิกัด${noCoord > 0
+          ? ` · ไม่มีพิกัด ${fmtNum(noCoord)} รายการ` : ''}</span></div>
       <div class="map-legend card-pad" role="group" aria-label="แสดงตามสถานะ">
         ${Object.entries(STATUS).map(([k, s]) => `<button class="lg-item ${hidden.has(k) ? 'off' : ''}" data-st="${k}" aria-pressed="${!hidden.has(k)}">
           <span class="lg-dot" style="background:${STATUS_COLOR[k]}"></span>${esc(s.long || s.label)}<span class="n">${fmtNum(counts[k])}</span></button>`).join('')}
@@ -511,7 +518,7 @@ async function renderMap() {
     </section>`;
 
   bindScopeToggle(() => route());
-  // กดช่องสรุป → ไปหน้ารายการคำร้องตามสถานะ (คงขอบเขตที่ดูอยู่)
+  // กดช่องสรุป → ไปหน้ารายการคำร้องตามสถานะ
   $$('.kpi[data-status]').forEach((b) => b.addEventListener('click', () => {
     Object.assign(state.filter, { status: b.dataset.status, missing: '', office: '', region: '', q: '' });
     location.hash = '#/list';
@@ -541,13 +548,23 @@ async function renderMap() {
   const layer = map ? L.layerGroup().addTo(map) : null;
   const markers = new Map();
 
-  const popupHtml = (r) => `<div class="pop">
+  const place = (r) => esc([r.office, regionLabel(r.region), r.province].filter(Boolean).join(' · '));
+  // หมุดพื้นที่อื่น: เฉพาะสถานะและพื้นที่ ไม่มีชื่อสถานี/ลิงก์เปิดคำร้อง
+  const popupHtml = (r) => (r.mine ? `<div class="pop">
     <div class="pop-t">${esc(r.station_name)}</div>
     <div class="pop-s">${esc(r.applicant_name || '')}</div>
     <div class="pop-row">${statusPill(r.status)}${condProgress(r)}</div>
-    <div class="pop-s">${esc([r.office, regionLabel(r.region), r.province].filter(Boolean).join(' · '))}</div>
+    <div class="pop-s">${place(r)}</div>
     ${r.low_effective_date ? `<div class="pop-s">อัตรา Low มีผล ${fmtDate(r.low_effective_date)}</div>` : ''}
-    <a class="btn btn-sm btn-primary" href="#/app/${r.id}">เปิดคำร้อง</a></div>`;
+    <a class="btn btn-sm btn-primary" href="#/app/${r.id}">เปิดคำร้อง</a></div>` : `<div class="pop">
+    <div class="pop-t">คำร้องของ ${esc(r.office || 'พื้นที่อื่น')}</div>
+    <div class="pop-row">${statusPill(r.status)}</div>
+    <div class="pop-s">${place(r)}</div>
+    <div class="pop-lock">${icon('info', 'i-sm')}ดูรายละเอียดได้เฉพาะคำร้องในพื้นที่ของตนเอง</div></div>`);
+  located.forEach((r, i) => { r.key = i; });
+  const markerOf = (r) => L.circleMarker([r.lat, r.lng], r.mine
+    ? { radius: 7, color: '#ffffff', weight: 2, fillColor: STATUS_COLOR[r.status], fillOpacity: 1 }
+    : { radius: 5, color: '#ffffff', weight: 1.5, fillColor: STATUS_COLOR[r.status], fillOpacity: .6 });
 
   function draw() {
     const q = ($('#mapQ').value || '').trim().toLowerCase();
@@ -556,22 +573,26 @@ async function renderMap() {
     if (layer) {
       layer.clearLayers();
       markers.clear();
-      for (const r of visible) {
-        const m = L.circleMarker([r.lat, r.lng], {
-          radius: 7, color: '#ffffff', weight: 2, fillColor: STATUS_COLOR[r.status], fillOpacity: 1,
-        }).bindTooltip(`<strong>${esc(r.station_name)}</strong><br>${esc(STATUS[r.status].label)}`, { direction: 'top', offset: [0, -6] })
+      // วาดหมุดพื้นที่อื่นก่อน ให้หมุดของตนเองอยู่ด้านบน
+      for (const r of [...visible.filter((x) => !x.mine), ...visible.filter((x) => x.mine)]) {
+        const m = markerOf(r)
+          .bindTooltip(`<strong>${esc(r.mine ? r.station_name : r.office || 'พื้นที่อื่น')}</strong><br>${esc(STATUS[r.status].label)}`, { direction: 'top', offset: [0, -6] })
           .bindPopup(popupHtml(r), { minWidth: 240 });
         m.addTo(layer);
-        markers.set(r.id, m);
+        markers.set(r.key, m);
       }
     }
-    $('#mapList').innerHTML = visible.length ? visible.map((r) => `<li><button data-id="${r.id}">
+    // รายการข้างแผนที่: เฉพาะสถานีในพื้นที่ตนเอง (ทุกสถานีสำหรับ กทฟ./ผู้ดูแลระบบ)
+    const listed = visible.filter((r) => r.mine);
+    const others = visible.length - listed.length;
+    $('#mapList').innerHTML = (listed.length ? listed.map((r) => `<li><button data-key="${r.key}">
         <span class="lg-dot" style="background:${STATUS_COLOR[r.status]}" title="${esc(STATUS[r.status].label)}"></span>
         <span class="ml-main"><span class="ml-t">${esc(r.station_name)}</span><span class="ml-s">${esc([r.office, r.province].filter(Boolean).join(' · '))} · ${esc(STATUS[r.status].label)}</span></span>
-      </button></li>`).join('') : `<li class="empty small">ไม่พบสถานี</li>`;
+      </button></li>`).join('') : `<li class="empty small">${q && others ? 'ไม่พบสถานีในพื้นที่ของคุณ' : 'ไม่พบสถานี'}</li>`)
+      + (others ? `<li class="ml-other small muted"><span class="lg-dot other" style="background:var(--muted)"></span>พื้นที่อื่น ${fmtNum(others)} สถานี (แสดงเฉพาะหมุดบนแผนที่)</li>` : '');
     $$('#mapList button').forEach((b) => b.addEventListener('click', () => {
-      const r = located.find((x) => x.id === Number(b.dataset.id));
-      const m = markers.get(r.id);
+      const r = located[Number(b.dataset.key)];
+      const m = markers.get(r.key);
       if (map && m) { map.flyTo([r.lat, r.lng], Math.max(map.getZoom(), 12), { duration: 0.6 }); setTimeout(() => m.openPopup(), 650); }
     }));
   }
@@ -588,12 +609,11 @@ async function renderDashboard() {
   const u = state.user;
   const seq = routeSeq;
   const f = state.filter;
-  // งานที่ต้องทำ (callout) นับเฉพาะพื้นที่ของตนเองเสมอ แม้จะเลือกดูทั้งหมด
-  const [stats, mine] = await Promise.all([api('GET', `/api/stats?scope=${f.scope}`),
-    hasArea(u) && f.scope === 'all' ? api('GET', '/api/stats') : null, loadLookups()]);
+  // กฟส./กบล. เห็นเฉพาะพื้นที่ของตนเอง (เซิร์ฟเวอร์จำกัดให้เสมอ)
+  const [stats] = await Promise.all([api('GET', '/api/stats'), loadLookups()]);
   if (isStale(seq)) return;
   setCrumbs([['รายการคำร้อง', '#/list']]);
-  const my = mine || stats;
+  const my = stats;
   const navCount = $('#navCount');
   if (navCount) { navCount.textContent = my.ready; navCount.hidden = !(canCreate(u) && my.ready); }
 
@@ -602,12 +622,12 @@ async function renderDashboard() {
     callout = `<div class="callout"><span class="ico">${icon('zap', 'i-lg')}</span>
       <div class="txt"><strong>${my.ready} คำร้องครบเงื่อนไขแล้ว รอเปลี่ยนอัตรา Low ในระบบ SAP</strong>
       <span>เปลี่ยนอัตราใน SAP แล้วบันทึกวันที่มีผลอัตรา Low เพื่อปิดงาน</span></div>
-      <button class="btn btn-sm" data-goto="mine" data-status="ready">ดูรายการ</button></div>`;
+      <button class="btn btn-sm" data-status="ready">ดูรายการ</button></div>`;
   } else if (hasArea(u) && my.safety_pending > 0) {
     callout = `<div class="callout warn"><span class="ico">${icon('flask', 'i-lg')}</span>
       <div class="txt"><strong>${my.safety_pending} คำร้องในพื้นที่ของคุณยังไม่มีผลการตรวจวัดทดสอบความปลอดภัย</strong>
       <span>บันทึกผลในแท็บ “ผลทดสอบความปลอดภัย” ของแต่ละคำร้อง</span></div>
-      <button class="btn btn-sm" data-goto="mine" data-missing="safety">ดูรายการ</button></div>`;
+      <button class="btn btn-sm" data-missing="safety">ดูรายการ</button></div>`;
   } else if (u.role === 'tfd' && stats.missing[3] > 0) {
     callout = `<div class="callout warn"><span class="ico">${icon('clock', 'i-lg')}</span>
       <div class="txt"><strong>${stats.missing[3]} คำร้องรอผลทดสอบระบบ CPO กับ PEA EVMS</strong>
@@ -624,7 +644,6 @@ async function renderDashboard() {
       <div><h1>รายการคำร้อง EV Low Priority</h1>
         <p>${esc(areaLabel(u))} · ข้อมูล ณ ${fmtDate(todayISO())}</p></div>
       <div class="row">
-        ${scopeToggle(u)}
         <a class="btn" id="exportBtn" href="#">${icon('download')}ส่งออก CSV</a>
         ${canCreate(u) ? `<a class="btn btn-primary" href="#/new">${icon('plus')}รับคำร้องใหม่</a>` : ''}
       </div>
@@ -643,7 +662,7 @@ async function renderDashboard() {
           <select id="fregion" aria-label="กฟข."><option value="">ทุก กฟข.</option>${L.regions.map((r) => `<option value="${esc(r)}">${esc(regionLabel(r))}</option>`).join('')}</select>` : ''}
         ${showingAll(u) || u.role === 'region' ? `
           <select id="foffice" aria-label="กฟส."><option value="">ทุก กฟส.</option>${officeOptions(L.offices, f.office,
-            u.role === 'region' && !showingAll(u) ? u.office : f.region)}</select>` : ''}
+            u.role === 'region' ? u.office : f.region)}</select>` : ''}
         <select id="fmissing" aria-label="ค้างเงื่อนไข"><option value="">ทุกเงื่อนไข</option>
           <option value="payment">ค้างชำระค่าทดสอบ</option>
           ${[1, 2, 3].map((n) => `<option value="${n}">ค้างเงื่อนไข ${n}: ${esc(CONDITIONS[n].short)}</option>`).join('')}
@@ -674,20 +693,12 @@ async function renderDashboard() {
     $('#foffice').innerHTML = `<option value="">ทุก กฟส.</option>${officeOptions(L.offices, '', f.region)}`;
     loadList();
   });
-  bindScopeToggle(() => renderDashboard());
-  $$('[data-goto=mine]').forEach((b) => b.addEventListener('click', (e) => {
-    if (state.filter.scope === 'all') {
-      e.stopImmediatePropagation();
-      Object.assign(f, { scope: 'mine', office: '', region: '', status: b.dataset.status || '', missing: b.dataset.missing || '' });
-      renderDashboard();
-    }
-  }, true));
   $('#foffice')?.addEventListener('change', (e) => { f.office = e.target.value; loadList(); });
   $('#fmissing').addEventListener('change', (e) => { f.missing = e.target.value; if (f.missing) f.status = ''; sync(); loadList(); });
   $$('[data-status]').forEach((b) => b.addEventListener('click', () => { f.status = b.dataset.status; f.missing = ''; sync(); loadList(); }));
   $$('[data-missing]').forEach((b) => b.addEventListener('click', () => { f.status = ''; f.missing = b.dataset.missing; sync(); loadList(); }));
   $('#clearF').addEventListener('click', () => {
-    Object.assign(f, { status: '', q: '', office: '', region: '', missing: '' }); // คงขอบเขต (scope) เดิมไว้
+    Object.assign(f, { status: '', q: '', office: '', region: '', missing: '' });
     renderDashboard();
   });
   $('#exportBtn').addEventListener('click', (e) => {
@@ -1109,9 +1120,6 @@ async function renderDetail(id, tab) {
         <div><div class="t">${esc(s.t)}</div><div class="s">${esc(s.s)}</div></div></div>`).join('')}
     </div></section>
 
-    ${hasArea(state.user) && !p.in_area ? `<div class="readonly-note">${icon('info')}<div>
-      <strong>ดูได้อย่างเดียว</strong> — คำร้องนี้อยู่ในพื้นที่ ${esc(a.office)} · ${esc(regionLabel(a.region) || 'ไม่ระบุ กฟข.')}
-      <span class="muted">บันทึกได้เฉพาะคำร้องใน${state.user.role === 'region' ? ' กฟข. ' : ' กฟส. '}ของตนเอง (${esc(scopeLabel(state.user))})</span></div></div>` : ''}
     ${actionPanel(a, doneCount)}
 
     <div class="detail-grid">
@@ -1944,7 +1952,7 @@ async function refreshSideStats() {
     box.hidden = false;
     fitSidebar(true); // การ์ดสรุปเพิ่มความสูง: วัดใหม่ว่าแถบซ้ายพอดีจอไหม
     $$('[data-side-status]', box).forEach((b) => b.addEventListener('click', () => {
-      Object.assign(state.filter, { status: b.dataset.sideStatus, missing: '', scope: 'mine', office: '', region: '' });
+      Object.assign(state.filter, { status: b.dataset.sideStatus, missing: '', office: '', region: '' });
       $('#shell').classList.remove('nav-open');
       if (location.hash === '#/list') route(); else location.hash = '#/list';
     }));

@@ -53,7 +53,11 @@ const multipart = (payload, files = {}) => {
   check('แบบฟอร์มคำร้องถูกแนบ', d.attachments.some((t) => t.condition_no === 0));
 
   r = await call(f2, 'GET', `/api/applications/${id}`);
-  check('กฟส. อื่นเปิดดูได้แต่เป็นแบบดูอย่างเดียว', r.status === 200 && r.body.permissions.in_area === false);
+  check('กฟส. อื่นเปิดดูคำร้องนอกพื้นที่ไม่ได้ (403)', r.status === 403, r.status);
+  r = await call(f2, 'GET', `/api/attachments/${d.attachments.find((t) => t.condition_no === 0).id}`);
+  check('กฟส. อื่นเปิดไฟล์ของคำร้องนอกพื้นที่ไม่ได้ (403)', r.status === 403, r.status);
+  r = await call(reg, 'GET', `/api/applications/${id}`);
+  check('กบล. เปิดดูคำร้องในเขตตนเองได้', r.status === 200 && r.body.permissions.in_area === true, r.status);
   r = await call(f2, 'POST', `/api/applications/${id}/evidence?condition=1`, { doc_no: 'x' });
   check('กฟส. อื่นบันทึกหลักฐานข้ามพื้นที่ไม่ได้', r.status === 403, JSON.stringify(r.body));
 
@@ -117,10 +121,22 @@ const multipart = (payload, files = {}) => {
   r = await call(f1, 'DELETE', `/api/attachments/${att.id}`);
   check('ปิดงานแล้วลบหลักฐานไม่ได้', r.status === 403);
 
-  const mine = (await call(f2, 'GET', '/api/applications')).body; const all = (await call(f2, 'GET', '/api/applications?scope=all')).body;
-  check('ขอบเขต "พื้นที่ของฉัน / ทั้งหมด" ถูกต้อง', !mine.some((x) => x.id === id) && all.some((x) => x.id === id));
+  // ขอบเขตการมองเห็น: รายการคำร้องเฉพาะพื้นที่ตนเอง (แม้ส่ง scope=all), ภาพรวมทั่วประเทศเป็นตัวเลข/หมุดไม่มีรายละเอียด
+  const f2all = (await call(f2, 'GET', '/api/applications?scope=all')).body;
+  check('รายการคำร้องของ กฟส. อื่นไม่มีคำร้องนอกพื้นที่ (แม้ส่ง scope=all)', !f2all.some((x) => x.id === id) && f2all.every((x) => x.office === 'กฟจ.ตราด'));
+  const regList = (await call(reg, 'GET', '/api/applications?scope=all')).body;
+  check('กบล. เห็นรายการคำร้องทั้งหมดในเขตตนเองเท่านั้น', regList.some((x) => x.id === id) && regList.every((x) => x.region === '1.กฟน.1'));
+  const all = (await call(admin, 'GET', '/api/applications')).body;
   check('รายการคำร้องบอกผลทดสอบความปลอดภัย (ผ่าน)', all.find((x) => x.id === id)?.safety === 'pass', all.find((x) => x.id === id)?.safety);
-  const csv = await call(admin, 'GET', '/api/applications/export.csv?scope=all');
+  const [stAll, stMine, stAdmin] = [(await call(f2, 'GET', '/api/stats?scope=all')).body, (await call(f2, 'GET', '/api/stats')).body, (await call(admin, 'GET', '/api/stats')).body];
+  check('ตัวเลขภาพรวมทั่วประเทศ (scope=all) เท่ากับของผู้ดูแลระบบ', stAll.total === stAdmin.total && stMine.total === f2all.length, `${stAll.total}/${stAdmin.total} ${stMine.total}/${f2all.length}`);
+  const pinOther = (await call(f2, 'GET', '/api/map?scope=all')).body.find((x) => x.office === 'กฟจ.เชียงใหม่' && x.lat === form.lat);
+  const pinMine = (await call(f1, 'GET', '/api/map?scope=all')).body.find((x) => x.id === id);
+  check('หมุดแผนที่พื้นที่อื่นไม่มี id/ชื่อสถานี/ผู้ขอใช้ไฟฟ้า', pinOther && pinOther.mine === false && !('id' in pinOther) && !('station_name' in pinOther) && !('applicant_name' in pinOther), JSON.stringify(pinOther));
+  check('หมุดแผนที่พื้นที่ตนเองมีรายละเอียดและ id', pinMine && pinMine.mine === true && pinMine.station_name === form.station_name);
+  const f2csv = await call(f2, 'GET', '/api/applications/export.csv?scope=all');
+  check('CSV ของ กฟส. อื่นไม่มีคำร้องนอกพื้นที่', typeof f2csv.body === 'string' && !f2csv.body.includes(d.app_no));
+  const csv = await call(admin, 'GET', '/api/applications/export.csv');
   check('ส่งออก CSV มีคำร้องใหม่', typeof csv.body === 'string' && csv.body.includes(d.app_no));
   check('CSV มีคอลัมน์ผลทดสอบความปลอดภัย', csv.body.includes('ผลทดสอบความปลอดภัย'));
   // เอกสารหลักฐานที่เกี่ยวข้อง: ผู้ดูแลระบบจัดการ ทุกบทบาทดาวน์โหลดได้

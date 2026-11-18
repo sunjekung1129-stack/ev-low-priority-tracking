@@ -46,15 +46,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const r = await page.evaluate(async () => {
     const j = async (m, u, b) => { const o = { method: m, headers: {} }; if (b instanceof FormData) o.body = b; else if (b) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(b); } const x = await fetch(u, o); return { s: x.status, b: (x.headers.get('content-type') || '').includes('json') ? await x.json() : await x.text() }; };
     const res = {};
-    const all = (await j('GET', '/api/applications?scope=all')).b;
-    res.total = all.length;
+    res.total = (await j('GET', '/api/stats?scope=all')).b.total;
     const mine = (await j('GET', '/api/applications')).b;
     res.mine = mine.length;
+    res.mineOnly = mine.every((a) => a.office === 'กฟจ.เชียงใหม่')
+      && (await j('GET', '/api/applications?scope=all')).b.length === mine.length;
+    const pins = (await j('GET', '/api/map?scope=all')).b;
+    res.otherPinsHidden = pins.some((p) => !p.mine) && pins.filter((p) => !p.mine).every((p) => !('id' in p) && !('station_name' in p));
     const unpaid = mine.find((a) => a.status === 'pending' && !a.paid);
     res.unpaidId = unpaid && unpaid.id;
-    // นอกพื้นที่: บันทึกไม่ได้
-    const other = all.find((a) => a.office !== 'กฟจ.เชียงใหม่' && a.status === 'pending');
-    res.crossArea = (await j('POST', `/api/applications/${other.id}/invoices`, { type: 'cpo', request_no: '199999999999', units: 1, unit_price: 2400 })).s;
+    // นอกพื้นที่: เปิดดูและบันทึกไม่ได้
+    const otherId = Array.from({ length: 40 }, (_, i) => i + 1).find((n) => !mine.some((a) => a.id === n));
+    res.crossView = (await j('GET', `/api/applications/${otherId}`)).s;
+    res.crossArea = (await j('POST', `/api/applications/${otherId}/invoices`, { type: 'cpo', request_no: '199999999999', units: 1, unit_price: 2400 })).s;
     // ชำระเงินในพื้นที่ตนเอง
     const i1 = await j('POST', `/api/applications/${unpaid.id}/invoices`, { type: 'safety', request_no: '188888888881', units: 1, unit_price: 10000 });
     const i2 = await j('POST', `/api/applications/${unpaid.id}/invoices`, { type: 'cpo', request_no: '188888888882', units: 1, unit_price: 6500 });
@@ -88,8 +92,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     res.docs = [docs.length, docFile && docFile.status, docFile && (await docFile.arrayBuffer()).byteLength];
     return res;
   });
-  check('เห็นคำร้องทั้งหมด 40 + ของตนเอง', r.total === 40 && r.mine >= 3, JSON.stringify(r));
-  check('บันทึกข้ามพื้นที่ไม่ได้ (403)', r.crossArea === 403, r.crossArea);
+  check('ตัวเลขทั่วประเทศ 40 · รายการคำร้องเฉพาะของตนเอง', r.total === 40 && r.mine >= 3 && r.mineOnly, JSON.stringify(r));
+  check('หมุดพื้นที่อื่นไม่มี id/ชื่อสถานี', r.otherPinsHidden);
+  check('เปิดดู/บันทึกคำร้องนอกพื้นที่ไม่ได้ (403)', r.crossView === 403 && r.crossArea === 403, `${r.crossView} ${r.crossArea}`);
   check('บันทึกเลขที่คำร้อง + ติ๊กชำระ', r.invoices.join() === '201,201' && r.paid, JSON.stringify(r.invoices));
   check('อัปโหลดไฟล์เงื่อนไข 1 + ดาวน์โหลดกลับ', r.upload === 201 && r.download[0] === 200 && r.download[2] === 6, JSON.stringify(r.download));
   check('เงื่อนไข 2 (เลขที่หนังสือ) ได้ · เงื่อนไข 3 โดย กฟส. ไม่ได้', r.ev2 === 201 && r.ev3byField === 403, `${r.ev2} ${r.ev3byField}`);
