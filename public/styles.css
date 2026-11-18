@@ -235,7 +235,7 @@ svg.i-lg { width: 22px; height: 22px; }
   .topbanner { gap: 12px; min-height: 0; padding: 10px 16px 13px; }
   .tb-link { gap: 12px; }
   .tb-mark { width: 40px; height: 40px; border-radius: 12px; }
-  .tb-mark svg { width: 22px; height: 22px; }
+  .tb-mark svg { width: 28px; height: 28px; }
   .tb-en { font-size: 1.02rem; gap: 3px 8px; }
   .tb-code { font-size: .64rem; padding: 1px 8px; }
   .tb-th { font-size: .78rem; }
