@@ -98,8 +98,10 @@ const multipart = (payload, files = {}) => {
   // ---- เงื่อนไข 3 ข้อ
   r = await call(f1, 'POST', `/api/applications/${id}/evidence?condition=1`, { url: 'https://drive.google.com/file/d/x/view', doc_no: 'ทดสอบ 1/2569', result: 'pass' });
   check('เงื่อนไข 1 (ลิงก์) บันทึกได้หลังชำระ', r.status === 201 && r.body.status === 'pending', JSON.stringify(r.body));
-  r = await call(reg, 'POST', `/api/applications/${id}/evidence?condition=2`, { doc_no: 'ไม่ควรรับ', result: 'pass' });
-  check('เงื่อนไข 2 ระบุเลขที่หนังสืออย่างเดียวไม่ได้ (ต้องแนบไฟล์/ลิงก์)', r.status === 400, JSON.stringify(r.body));
+  for (const c of [1, 2, 4]) {
+    r = await call(c === 4 ? reg : f1, 'POST', `/api/applications/${id}/evidence?condition=${c}`, { doc_no: 'ไม่ควรรับ', doc_date: '2026-11-01', result: 'pass' });
+    check(`หลักฐานหมวด ${c} ระบุเลขที่หนังสืออย่างเดียวไม่ได้ (ต้องแนบไฟล์/ลิงก์)`, r.status === 400, JSON.stringify(r.body));
+  }
   const fd = new FormData(); fd.append('files', pdf('c2'), 'ผลตรวจการติดตั้ง.pdf'); fd.append('result', 'pass');
   fd.append('doc_no', 'ไม่ควรบันทึก'); fd.append('doc_date', '2026-11-01');
   r = await call(reg, 'POST', `/api/applications/${id}/attachments?condition=2`, fd);
@@ -118,8 +120,10 @@ const multipart = (payload, files = {}) => {
   const n = (await call(f1, 'GET', '/api/notifications')).body;
   check('แจ้งเตือน กฟส. เมื่อครบเงื่อนไข', n.items.some((x) => x.application_id === id && /ครบ 3/.test(x.message)));
 
-  r = await call(reg, 'POST', `/api/applications/${id}/evidence?condition=4`, { doc_no: 'กบล. 1/2569', result: 'pass' });
+  r = await call(reg, 'POST', `/api/applications/${id}/evidence?condition=4`, { url: 'https://drive.google.com/file/d/safety/view', doc_no: 'ไม่ควรบันทึก', doc_date: '2026-11-01', result: 'pass' });
   check('กบล. กฟข. บันทึกผลทดสอบความปลอดภัยในเขตตนได้', r.status === 201, JSON.stringify(r.body));
+  check('เงื่อนไข 1 และผลทดสอบความปลอดภัยไม่บันทึกเลขที่/วันที่หนังสือ', (await call(f1, 'GET', `/api/applications/${id}`)).body.attachments
+    .filter((t) => t.condition_no === 1 || t.condition_no === 4).every((t) => t.doc_no === null && t.doc_date === null));
   r = await call(tfd, 'POST', `/api/applications/${id}/evidence?condition=4`, { doc_no: 'x' });
   check('กทฟ. บันทึกผลทดสอบความปลอดภัยไม่ได้', r.status === 403);
 

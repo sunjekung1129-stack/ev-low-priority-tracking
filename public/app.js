@@ -1190,8 +1190,7 @@ async function renderDetail(id, tab) {
       e.preventDefault();
       const n = f.dataset.cond;
       const kind = kindOf();
-      const meta = { result: $('input[name=result]:checked', f)?.value || '', doc_no: f.elements.doc_no?.value || '',
-        doc_date: f.elements.doc_date?.value || '', note: f.elements.note?.value || '' };
+      const meta = { result: $('input[name=result]:checked', f)?.value || '', note: f.elements.note?.value || '' };
       const btn = $('button[type=submit]', f); btn.disabled = true;
       try {
         let r;
@@ -1384,7 +1383,7 @@ function conditionBlock(a, n) {
     : st === 'met' ? `<span class="pill st-pass">${icon('check')}${isCond ? 'ครบ' : 'มีผลแล้ว'}</span>`
       : st === 'failed' ? `<span class="pill st-fail">${icon('x')}ยังไม่ผ่าน</span>`
         : `<span class="pill st-none">${icon('clock')}${isCond ? 'ยังไม่มีหลักฐาน' : 'ยังไม่มีผล'}</span>`;
-  const withDoc = n === 1 || n === 4; // เงื่อนไข 2–3: แนบไฟล์/ลิงก์เท่านั้น ไม่มีเลขที่/วันที่หนังสือ
+  // หลักฐานทุกหมวด: แนบไฟล์หรือลิงก์ + ผล + หมายเหตุ (ไม่มีเลขที่/วันที่หนังสือ)
   const addLabel = isForm ? 'แนบไฟล์คำร้อง' : n === 4 ? 'เพิ่มผลการทดสอบ' : 'เพิ่มหลักฐาน';
   let foot = '';
   if (canUp) {
@@ -1393,15 +1392,13 @@ function conditionBlock(a, n) {
       <form class="ev-form" id="evf${n}" data-cond="${n}" hidden>
         ${isForm ? '' : `<div class="row" style="justify-content:space-between">
           <div class="choice"><label><input type="radio" name="kind" value="file" checked>${icon('upload', 'i-sm')}แนบไฟล์</label>
-            <label><input type="radio" name="kind" value="link">${icon('link', 'i-sm')}${withDoc ? 'ลิงก์ / เลขที่หนังสือ' : 'ลิงก์'}</label></div>
+            <label><input type="radio" name="kind" value="link">${icon('link', 'i-sm')}ลิงก์</label></div>
           <div class="choice"><label class="pass"><input type="radio" name="result" value="pass" checked>${icon('check', 'i-sm')}ผ่าน</label>
             <label class="fail"><input type="radio" name="result" value="fail">${icon('x', 'i-sm')}ไม่ผ่าน</label></div>
         </div>`}
         <div class="k-file"><input type="file" name="files" ${isForm ? 'accept="application/pdf,.pdf"' : 'multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.zip"'} aria-label="เลือกไฟล์"></div>
         ${isForm ? '' : `<div class="k-link"><input type="url" name="url" placeholder="https://drive.google.com/…" aria-label="ลิงก์เอกสาร"></div>
-        <div class="grid${withDoc ? ' g3' : ''}">
-          ${withDoc ? `<label class="field"><span>เลขที่หนังสือ</span><input type="text" name="doc_no"></label>
-          <label class="field"><span>วันที่หนังสือ</span><input type="date" name="doc_date"></label>` : ''}
+        <div class="grid">
           <label class="field"><span>หมายเหตุ</span><input type="text" name="note" ${n === 4 ? 'placeholder="เช่น IEC 60364-6 ผ่าน · IEC 61851 ผ่าน"' : ''}></label>
         </div>`}
         <div class="row" style="justify-content:flex-end">
