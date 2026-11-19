@@ -390,7 +390,7 @@ function renderLogin() {
       </div>
 
       <footer class="la-foot"><span>© การไฟฟ้าส่วนภูมิภาค</span>
-        <span class="la-roles"><i>กฟส.</i><i>กบล. กฟข.</i><i>กทฟ.</i></span></footer>
+        <span class="la-roles"><i>กองกลยุทธ์หน่วยบริการลูกค้า (กกล.) ฝ่ายกลยุทธ์การตลาด (ฝกต.) โทร <b>9339</b></i></span></footer>
     </section>
 
     <section class="login-form">
