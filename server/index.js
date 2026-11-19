@@ -17,11 +17,13 @@ const CRITERIA_COUNT = 8; // คุณลักษณะสถานีที่
 // หมวดไฟล์/หลักฐาน (attachments.condition_no) และผู้มีสิทธิ์บันทึก
 const CONDITIONS = {
   0: { label: 'แบบฟอร์มคำร้องขอใช้ไฟฟ้า', roles: ['field', 'admin'] },
-  1: { label: 'หลักฐานการขึ้นทะเบียนเครื่องอัดประจุไฟฟ้ากับ กฟภ.', roles: ['field', 'admin'] },
-  2: { label: 'ผลตรวจสอบมาตรฐานการติดตั้งระบบอัดประจุยานยนต์ไฟฟ้าก่อนติดตั้งมิเตอร์', roles: ['field', 'admin'] },
+  1: { label: 'หลักฐานการขึ้นทะเบียนเครื่องอัดประจุไฟฟ้ากับ กฟภ.', roles: ['field', 'region', 'admin'] },
+  2: { label: 'ผลตรวจสอบมาตรฐานการติดตั้งระบบอัดประจุยานยนต์ไฟฟ้าก่อนติดตั้งมิเตอร์', roles: ['field', 'region', 'admin'] },
   3: { label: 'ผลการทดสอบระบบปฏิบัติการโครงข่ายไฟฟ้า CPO กับ PEA EVMS', roles: ['tfd', 'admin'] },
   4: { label: 'ผลการตรวจวัดทดสอบความปลอดภัย', roles: ['field', 'region', 'admin'] },
 };
+// หลักฐานที่ระบุเลขที่/วันที่หนังสือได้ — เงื่อนไข 2 และ 3 แนบไฟล์หรือลิงก์เท่านั้น
+const DOC_NO_CONDS = new Set([1, 4]);
 const condName = (n) => (n >= 1 && n <= 3 ? `เงื่อนไขที่ ${n} (${CONDITIONS[n].label})` : CONDITIONS[n].label);
 const RESULT_LABEL = { pass: 'ผ่าน', fail: 'ไม่ผ่าน' };
 const ALLOWED_EXT = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx', '.xls', '.xlsx', '.zip']);
@@ -173,7 +175,8 @@ const canUpload = (user, row, cond) =>
 
 // กฟข. ของ กฟส. จากรายชื่อในระบบ
 const officeRow = (name) => db.prepare('SELECT * FROM offices WHERE name = ? AND active = 1').get(String(name || ''));
-const canInvoice = (user, row) => row.status !== 'cancelled' && (user.role === 'admin' || sameOffice(user, row));
+// เลขที่คำร้องค่าทดสอบ/การชำระเงิน: กฟส. ของคำร้อง หรือ กบล. กฟข. ในเขต
+const canInvoice = (user, row) => row.status !== 'cancelled' && (user.role === 'admin' || sameOffice(user, row) || sameRegion(user, row));
 const canRecordLow = (user, row) =>
   (row.status === 'ready' || row.status === 'completed') && (user.role === 'admin' || sameOffice(user, row));
 
@@ -665,12 +668,13 @@ function checkUploadPermission(req, _res, next) {
   next();
 }
 
-function evidenceMeta(body) {
+function evidenceMeta(body, cond) {
   const b = body || {};
-  if (b.doc_date && !isDate(b.doc_date)) fail(400, 'วันที่หนังสือไม่ถูกต้อง');
+  const withDoc = DOC_NO_CONDS.has(cond);
+  if (withDoc && b.doc_date && !isDate(b.doc_date)) fail(400, 'วันที่หนังสือไม่ถูกต้อง');
   return {
-    doc_no: str(b.doc_no, 100) || null,
-    doc_date: b.doc_date || null,
+    doc_no: (withDoc && str(b.doc_no, 100)) || null,
+    doc_date: (withDoc && b.doc_date) || null,
     result: ['pass', 'fail'].includes(b.result) ? b.result : null,
     note: str(b.note, 500) || null,
   };
@@ -698,19 +702,21 @@ function saveEvidence(req, items) {
 app.post('/api/applications/:id/attachments', requireAuth, checkUploadPermission, upload.array('files', 10), (req, res) => {
   const files = req.files || [];
   if (!files.length) fail(400, 'กรุณาเลือกไฟล์');
-  const meta = evidenceMeta(req.body);
+  const meta = evidenceMeta(req.body, req.condition);
   const status = saveEvidence(req, files.map((f) => ({
     ...meta, stored_name: path.relative(UPLOAD_DIR, f.path), original_name: f.originalname, mime: f.mimetype, size: f.size,
   })));
   res.status(201).json({ ok: true, status });
 });
 
-// หลักฐานแบบลิงก์ (เช่น Google Drive) หรือเลขที่หนังสืออย่างเดียว
+// หลักฐานแบบลิงก์ (เช่น Google Drive) หรือเลขที่หนังสืออย่างเดียว (เฉพาะเงื่อนไข 1 และผลทดสอบความปลอดภัย)
 app.post('/api/applications/:id/evidence', requireAuth, checkUploadPermission, (req, res) => {
-  const meta = evidenceMeta(req.body);
+  const meta = evidenceMeta(req.body, req.condition);
   const url = str(req.body?.url, 2000);
   if (url && !isUrl(url)) fail(400, 'ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https://');
-  if (!url && !meta.doc_no) fail(400, 'กรุณาระบุลิงก์เอกสาร หรือเลขที่หนังสือ');
+  if (!url && !meta.doc_no) {
+    fail(400, DOC_NO_CONDS.has(req.condition) ? 'กรุณาระบุลิงก์เอกสาร หรือเลขที่หนังสือ' : 'กรุณาแนบไฟล์ หรือระบุลิงก์เอกสาร');
+  }
   const status = saveEvidence(req, [{ ...meta, url: url || null }]);
   res.status(201).json({ ok: true, status });
 });

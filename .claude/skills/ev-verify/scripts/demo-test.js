@@ -74,7 +74,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const att = (await j('GET', `/api/applications/${unpaid.id}`)).b.attachments.find((t) => t.condition_no === 1);
     const dl = await fetch(`/api/attachments/${att.id}`);
     res.download = [dl.status, dl.headers.get('content-disposition'), (await dl.arrayBuffer()).byteLength];
-    res.ev2 = (await j('POST', `/api/applications/${unpaid.id}/evidence?condition=2`, { doc_no: 'ทดสอบ 1/2569', result: 'pass' })).s;
+    res.ev2 = (await j('POST', `/api/applications/${unpaid.id}/evidence?condition=2`, { url: 'https://drive.google.com/file/d/demo/view', result: 'pass' })).s;
+    res.ev2docOnly = (await j('POST', `/api/applications/${unpaid.id}/evidence?condition=2`, { doc_no: 'ทดสอบ 1/2569', result: 'pass' })).s;
     res.ev3byField = (await j('POST', `/api/applications/${unpaid.id}/evidence?condition=3`, { doc_no: 'x' })).s;
     // รับคำร้องใหม่พร้อม PDF
     const payload = { request_date: '2026-11-17', station_name: 'สถานีทดสอบเดโม', applicant_name: 'บริษัท ทดสอบ จำกัด', ca_no: '020011112222', meter_no: '6511112222',
@@ -97,7 +98,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check('เปิดดู/บันทึกคำร้องนอกพื้นที่ไม่ได้ (403)', r.crossView === 403 && r.crossArea === 403, `${r.crossView} ${r.crossArea}`);
   check('บันทึกเลขที่คำร้อง + ติ๊กชำระ', r.invoices.join() === '201,201' && r.paid, JSON.stringify(r.invoices));
   check('อัปโหลดไฟล์เงื่อนไข 1 + ดาวน์โหลดกลับ', r.upload === 201 && r.download[0] === 200 && r.download[2] === 6, JSON.stringify(r.download));
-  check('เงื่อนไข 2 (เลขที่หนังสือ) ได้ · เงื่อนไข 3 โดย กฟส. ไม่ได้', r.ev2 === 201 && r.ev3byField === 403, `${r.ev2} ${r.ev3byField}`);
+  check('เงื่อนไข 2 (ลิงก์) ได้ · เลขที่หนังสืออย่างเดียวไม่ได้ · เงื่อนไข 3 โดย กฟส. ไม่ได้', r.ev2 === 201 && r.ev2docOnly === 400 && r.ev3byField === 403, `${r.ev2} ${r.ev2docOnly} ${r.ev3byField}`);
   check('รับคำร้องใหม่พร้อม PDF', r.create[0] === 201, JSON.stringify(r.create));
   check('ส่งออก CSV + สถิติ', r.csv === 200 && r.stats === 41, `${r.csv} ${r.stats}`);
   check('เอกสารตัวอย่าง 4 รายการ เปิดไฟล์ได้', r.docs[0] === 4 && r.docs[1] === 200 && r.docs[2] > 300, JSON.stringify(r.docs));

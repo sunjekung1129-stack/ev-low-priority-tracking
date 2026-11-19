@@ -81,23 +81,40 @@ const multipart = (payload, files = {}) => {
   check('ติ๊กชำระค่าทดสอบความปลอดภัยแล้ว (ยังเหลือ CPO)', r.status === 200 && r.body.payment.safety.done && !r.body.payment.done, JSON.stringify(r.body.payment));
   r = await call(f1, 'POST', `/api/applications/${id}/payment-exempt`, { type: 'cpo', exempt: true });
   check('ไม่ต้องชำระ ต้องระบุเหตุผล', r.status === 400);
-  r = await call(f1, 'POST', `/api/applications/${id}/payment-exempt`, { type: 'cpo', exempt: true, reason: 'ทดสอบระบบ' });
-  check('ระบุ "ไม่ต้องชำระค่าทดสอบ CPO" → ชำระครบ', r.status === 200 && r.body.payment.done, JSON.stringify(r.body));
+  // กบล. กฟข. บันทึกเลขที่คำร้อง/การชำระเงินในเขตตนได้ แต่ข้ามเขตไม่ได้
+  r = await call(reg, 'POST', `/api/applications/${id}/invoices`, { type: 'cpo', request_no: `8${stamp}00001`.slice(0, 12), units: 1, unit_price: 6500 });
+  check('กบล. กฟข. บันทึกเลขที่คำร้องค่าทดสอบในเขตตนได้', r.status === 201, JSON.stringify(r.body));
+  const regInv = (await call(reg, 'GET', `/api/applications/${id}`)).body.invoices.find((i) => i.type === 'cpo');
+  r = await call(reg, 'DELETE', `/api/invoices/${regInv.id}`);
+  check('กบล. กฟข. ลบเลขที่คำร้องที่ตนบันทึกได้', r.status === 200, JSON.stringify(r.body));
+  const other = await call(f2, 'POST', '/api/applications', multipart({ ...form, ca_no: `0300${stamp}00`, meter_no: `66${stamp}00`, station_name: `สถานีเขตอื่น ${stamp}` }, { form_pdf: 'คำร้อง.pdf' }));
+  r = await call(reg, 'POST', `/api/applications/${other.body.id}/invoices`, { type: 'cpo', request_no: `7${stamp}00001`.slice(0, 12), units: 1, unit_price: 2400 });
+  check('กบล. กฟข. บันทึกเลขที่คำร้องข้ามเขตไม่ได้', r.status === 403, r.status);
+  r = await call(reg, 'POST', `/api/applications/${id}/payment-exempt`, { type: 'cpo', exempt: true, reason: 'ทดสอบระบบ' });
+  check('กบล. กฟข. ระบุ "ไม่ต้องชำระค่าทดสอบ CPO" → ชำระครบ', r.status === 200 && r.body.payment.done, JSON.stringify(r.body));
   const tn = (await call(tfd, 'GET', '/api/notifications')).body;
   check('แจ้ง กทฟ. เมื่อชำระค่าทดสอบครบ', tn.items.some((x) => x.application_id === id && /ชำระเงินค่าทดสอบครบ/.test(x.message)));
 
   // ---- เงื่อนไข 3 ข้อ
   r = await call(f1, 'POST', `/api/applications/${id}/evidence?condition=1`, { url: 'https://drive.google.com/file/d/x/view', doc_no: 'ทดสอบ 1/2569', result: 'pass' });
   check('เงื่อนไข 1 (ลิงก์) บันทึกได้หลังชำระ', r.status === 201 && r.body.status === 'pending', JSON.stringify(r.body));
+  r = await call(reg, 'POST', `/api/applications/${id}/evidence?condition=2`, { doc_no: 'ไม่ควรรับ', result: 'pass' });
+  check('เงื่อนไข 2 ระบุเลขที่หนังสืออย่างเดียวไม่ได้ (ต้องแนบไฟล์/ลิงก์)', r.status === 400, JSON.stringify(r.body));
   const fd = new FormData(); fd.append('files', pdf('c2'), 'ผลตรวจการติดตั้ง.pdf'); fd.append('result', 'pass');
-  r = await call(f1, 'POST', `/api/applications/${id}/attachments?condition=2`, fd);
-  check('เงื่อนไข 2 (ไฟล์) อัปโหลดได้', r.status === 201, JSON.stringify(r.body));
+  fd.append('doc_no', 'ไม่ควรบันทึก'); fd.append('doc_date', '2026-11-01');
+  r = await call(reg, 'POST', `/api/applications/${id}/attachments?condition=2`, fd);
+  check('กบล. กฟข. อัปโหลดไฟล์เงื่อนไข 2 ในเขตตนได้', r.status === 201, JSON.stringify(r.body));
+  const c2 = (await call(f1, 'GET', `/api/applications/${id}`)).body.attachments.find((t) => t.condition_no === 2);
+  check('เงื่อนไข 2 ไม่บันทึกเลขที่/วันที่หนังสือ', c2 && c2.doc_no === null && c2.doc_date === null, JSON.stringify(c2));
+  r = await call(reg, 'POST', `/api/applications/${other.body.id}/evidence?condition=1`, { url: 'https://drive.google.com/x' });
+  check('กบล. กฟข. บันทึกเงื่อนไขข้ามเขตไม่ได้', r.status === 403, r.status);
   r = await call(f1, 'POST', `/api/applications/${id}/evidence?condition=3`, { doc_no: 'x' });
   check('กฟส. บันทึกเงื่อนไข 3 ไม่ได้ (เฉพาะ กทฟ.)', r.status === 403);
-  r = await call(tfd, 'POST', `/api/applications/${id}/evidence?condition=3`, { doc_no: 'กทฟ. 1/2569', result: 'fail' });
+  r = await call(tfd, 'POST', `/api/applications/${id}/evidence?condition=3`, { url: 'https://drive.google.com/file/d/cpo1/view', result: 'fail' });
   check('ผล "ไม่ผ่าน" ไม่นับว่าครบ', r.body.status === 'pending', JSON.stringify(r.body));
-  r = await call(tfd, 'POST', `/api/applications/${id}/evidence?condition=3`, { doc_no: 'กทฟ. 2/2569', result: 'pass' });
+  r = await call(tfd, 'POST', `/api/applications/${id}/evidence?condition=3`, { url: 'https://drive.google.com/file/d/cpo2/view', doc_no: 'ไม่ควรบันทึก', result: 'pass' });
   check('ครบ 3 เงื่อนไข → รอเปลี่ยนอัตรา Low', r.body.status === 'ready', JSON.stringify(r.body));
+  check('เงื่อนไข 3 ไม่บันทึกเลขที่หนังสือ', (await call(tfd, 'GET', `/api/applications/${id}`)).body.attachments.filter((t) => t.condition_no === 3).every((t) => t.doc_no === null));
   const n = (await call(f1, 'GET', '/api/notifications')).body;
   check('แจ้งเตือน กฟส. เมื่อครบเงื่อนไข', n.items.some((x) => x.application_id === id && /ครบ 3/.test(x.message)));
 

@@ -16,8 +16,8 @@ const STATUS = {
 };
 const CONDITIONS = {
   0: { short: 'แบบฟอร์มคำร้อง', title: 'แบบฟอร์มคำร้องขอใช้ไฟฟ้า (PDF)', who: 'กฟส.ในพื้นที่ใช้ไฟฟ้า' },
-  1: { short: 'ขึ้นทะเบียนเครื่องอัดประจุ', title: 'หลักฐานการขึ้นทะเบียนเครื่องอัดประจุไฟฟ้ากับ กฟภ.', who: 'กฟส.ในพื้นที่ใช้ไฟฟ้า' },
-  2: { short: 'ตรวจมาตรฐานการติดตั้ง', title: 'ผลตรวจสอบมาตรฐานการติดตั้งระบบอัดประจุยานยนต์ไฟฟ้าก่อนติดตั้งมิเตอร์', who: 'กฟส.ในพื้นที่ใช้ไฟฟ้า' },
+  1: { short: 'ขึ้นทะเบียนเครื่องอัดประจุ', title: 'หลักฐานการขึ้นทะเบียนเครื่องอัดประจุไฟฟ้ากับ กฟภ.', who: 'กฟส.ในพื้นที่ใช้ไฟฟ้า / กบล. กฟข.' },
+  2: { short: 'ตรวจมาตรฐานการติดตั้ง', title: 'ผลตรวจสอบมาตรฐานการติดตั้งระบบอัดประจุยานยนต์ไฟฟ้าก่อนติดตั้งมิเตอร์', who: 'กฟส.ในพื้นที่ใช้ไฟฟ้า / กบล. กฟข.' },
   3: { short: 'ทดสอบ CPO – PEA EVMS', title: 'ผลการทดสอบระบบปฏิบัติการโครงข่ายไฟฟ้า CPO กับ PEA EVMS', who: 'กองทดสอบอุปกรณ์ไฟฟ้า (กทฟ.)' },
   4: { short: 'ทดสอบความปลอดภัย', title: 'ผลการตรวจวัดทดสอบความปลอดภัย (IEC 60364-6 / IEC 61851)', who: 'กฟส.ในพื้นที่ใช้ไฟฟ้า / กบล. กฟข.' },
 };
@@ -1318,7 +1318,7 @@ function actionPanel(a, doneCount) {
     return `<div class="action-panel pending"><span class="ico">${icon('receipt', 'i-lg')}</span>
       <div class="body"><h2>รอลูกค้าชำระเงินค่าทดสอบ</h2>
         <p class="muted">บันทึกเลขที่คำร้องและติ๊ก “ลูกค้าชำระเงินแล้ว” ให้ครบก่อน จึงจะตรวจเงื่อนไข 1–3 ได้</p>
-        <div class="todo-list">${items.map((t) => `<span class="tag">${esc(t)} · กฟส.ในพื้นที่ใช้ไฟฟ้า</span>`).join('')}</div></div></div>`;
+        <div class="todo-list">${items.map((t) => `<span class="tag">${esc(t)} · กฟส.ในพื้นที่ใช้ไฟฟ้า / กบล. กฟข.</span>`).join('')}</div></div></div>`;
   }
   if (a.status === 'pending') {
     return `<div class="action-panel pending"><span class="ico">${icon('clock', 'i-lg')}</span>
@@ -1384,6 +1384,7 @@ function conditionBlock(a, n) {
     : st === 'met' ? `<span class="pill st-pass">${icon('check')}${isCond ? 'ครบ' : 'มีผลแล้ว'}</span>`
       : st === 'failed' ? `<span class="pill st-fail">${icon('x')}ยังไม่ผ่าน</span>`
         : `<span class="pill st-none">${icon('clock')}${isCond ? 'ยังไม่มีหลักฐาน' : 'ยังไม่มีผล'}</span>`;
+  const withDoc = n === 1 || n === 4; // เงื่อนไข 2–3: แนบไฟล์/ลิงก์เท่านั้น ไม่มีเลขที่/วันที่หนังสือ
   const addLabel = isForm ? 'แนบไฟล์คำร้อง' : n === 4 ? 'เพิ่มผลการทดสอบ' : 'เพิ่มหลักฐาน';
   let foot = '';
   if (canUp) {
@@ -1392,15 +1393,15 @@ function conditionBlock(a, n) {
       <form class="ev-form" id="evf${n}" data-cond="${n}" hidden>
         ${isForm ? '' : `<div class="row" style="justify-content:space-between">
           <div class="choice"><label><input type="radio" name="kind" value="file" checked>${icon('upload', 'i-sm')}แนบไฟล์</label>
-            <label><input type="radio" name="kind" value="link">${icon('link', 'i-sm')}ลิงก์ / เลขที่หนังสือ</label></div>
+            <label><input type="radio" name="kind" value="link">${icon('link', 'i-sm')}${withDoc ? 'ลิงก์ / เลขที่หนังสือ' : 'ลิงก์'}</label></div>
           <div class="choice"><label class="pass"><input type="radio" name="result" value="pass" checked>${icon('check', 'i-sm')}ผ่าน</label>
             <label class="fail"><input type="radio" name="result" value="fail">${icon('x', 'i-sm')}ไม่ผ่าน</label></div>
         </div>`}
         <div class="k-file"><input type="file" name="files" ${isForm ? 'accept="application/pdf,.pdf"' : 'multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.zip"'} aria-label="เลือกไฟล์"></div>
         ${isForm ? '' : `<div class="k-link"><input type="url" name="url" placeholder="https://drive.google.com/…" aria-label="ลิงก์เอกสาร"></div>
-        <div class="grid g3">
-          <label class="field"><span>เลขที่หนังสือ</span><input type="text" name="doc_no"></label>
-          <label class="field"><span>วันที่หนังสือ</span><input type="date" name="doc_date"></label>
+        <div class="grid${withDoc ? ' g3' : ''}">
+          ${withDoc ? `<label class="field"><span>เลขที่หนังสือ</span><input type="text" name="doc_no"></label>
+          <label class="field"><span>วันที่หนังสือ</span><input type="date" name="doc_date"></label>` : ''}
           <label class="field"><span>หมายเหตุ</span><input type="text" name="note" ${n === 4 ? 'placeholder="เช่น IEC 60364-6 ผ่าน · IEC 61851 ผ่าน"' : ''}></label>
         </div>`}
         <div class="row" style="justify-content:flex-end">

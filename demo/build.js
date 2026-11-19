@@ -148,9 +148,20 @@ async function seedData() {
     for (const inv of app.invoices) await call(admin, 'POST', `/api/invoices/${inv.id}/payment`, { paid: true, paid_date: paidDate });
 
     // เงื่อนไข 1–3 และผลทดสอบความปลอดภัย
-    const ev = (cond, extra) => call(admin, 'POST', `/api/applications/${id}/evidence?condition=${cond}`, {
-      doc_no: `ตัวอย่าง ${int(100, 999)}/${Number(requestDate.slice(0, 4)) + 543}`, doc_date: addDays(paidDate, int(5, 40)), result: 'pass', ...extra,
-    });
+    // เงื่อนไข 1 และผลทดสอบความปลอดภัย: เลขที่/วันที่หนังสือ · เงื่อนไข 2–3: แนบไฟล์ PDF ตัวอย่าง (ไม่มีเลขที่หนังสือ)
+    const EV_FILE = { 2: ['Installation inspection result (sample)', 'ผลตรวจสอบมาตรฐานการติดตั้ง (ตัวอย่าง).pdf'],
+      3: ['CPO - PEA EVMS test result (sample)', 'ผลทดสอบระบบ CPO กับ PEA EVMS (ตัวอย่าง).pdf'] };
+    const ev = (cond, extra = {}) => {
+      if (EV_FILE[cond]) {
+        const fd = new FormData();
+        fd.append('files', samplePdf(EV_FILE[cond][0]), EV_FILE[cond][1]);
+        for (const [k, v] of Object.entries({ result: 'pass', ...extra })) fd.append(k, v);
+        return call(admin, 'POST', `/api/applications/${id}/attachments?condition=${cond}`, fd);
+      }
+      return call(admin, 'POST', `/api/applications/${id}/evidence?condition=${cond}`, {
+        doc_no: `ตัวอย่าง ${int(100, 999)}/${Number(requestDate.slice(0, 4)) + 543}`, doc_date: addDays(paidDate, int(5, 40)), result: 'pass', ...extra,
+      });
+    };
     const skip = { c1: [1, 2, 3], c2: [2, 3], c3: [3] }[kind] || [];
     for (const c of [1, 2, 3]) if (!skip.includes(c)) await ev(c);
     if (kind === 'c3' && rnd() < 0.5) await ev(3, { result: 'fail', note: 'ทดสอบครั้งแรกไม่ผ่าน รอทดสอบใหม่ (ข้อมูลสมมติ)' });
