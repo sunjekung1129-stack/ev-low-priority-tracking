@@ -69,8 +69,12 @@ const multipart = (payload, files = {}) => {
   const reqNo = `9${stamp}00000`.slice(0, 12);
   r = await call(f1, 'POST', `/api/applications/${id}/invoices`, { type: 'safety', request_no: reqNo, units: 2 });
   check('บันทึกเลขที่คำร้องค่าทดสอบความปลอดภัยได้', r.status === 201, JSON.stringify(r.body));
+  r = await call(f1, 'POST', `/api/applications/${id}/invoices`, { type: 'safety', request_no: reqNo, units: 1 });
+  check('เลขที่คำร้องซ้ำในค่าทดสอบประเภทเดียวกัน → ถูกปฏิเสธ', r.status === 400, JSON.stringify(r.body));
   r = await call(f1, 'POST', `/api/applications/${id}/invoices`, { type: 'cpo', request_no: reqNo, units: 1, unit_price: 2400 });
-  check('เลขที่คำร้องซ้ำ → ถูกปฏิเสธ', r.status === 400);
+  check('สถานีเดียวกัน ค่าทดสอบ CPO ใช้เลขที่คำร้องเดียวกับค่าทดสอบความปลอดภัยได้', r.status === 201, JSON.stringify(r.body));
+  { const sameNo = (await call(f1, 'GET', `/api/applications/${id}`)).body.invoices.find((i) => i.type === 'cpo' && i.request_no === reqNo);
+    if (sameNo) await call(f1, 'DELETE', `/api/invoices/${sameNo.id}`); }
   r = await call(f1, 'POST', `/api/applications/${id}/invoices`, { type: 'cpo', request_no: '1'.repeat(11) + '9', units: 1, unit_price: 5000 });
   check('อัตราค่าทดสอบ CPO ต้องเป็น 2,400/6,500', r.status === 400);
   d = (await call(f1, 'GET', `/api/applications/${id}`)).body;
@@ -88,6 +92,8 @@ const multipart = (payload, files = {}) => {
   r = await call(reg, 'DELETE', `/api/invoices/${regInv.id}`);
   check('กบล. กฟข. ลบเลขที่คำร้องที่ตนบันทึกได้', r.status === 200, JSON.stringify(r.body));
   const other = await call(f2, 'POST', '/api/applications', multipart({ ...form, ca_no: `0300${stamp}00`, meter_no: `66${stamp}00`, station_name: `สถานีเขตอื่น ${stamp}` }, { form_pdf: 'คำร้อง.pdf' }));
+  r = await call(f2, 'POST', `/api/applications/${other.body.id}/invoices`, { type: 'safety', request_no: reqNo, units: 1 });
+  check('เลขที่คำร้องซ้ำกับสถานีอื่น → ถูกปฏิเสธ', r.status === 400 && /สถานีอื่น/.test(r.body.error || ''), JSON.stringify(r.body));
   r = await call(reg, 'POST', `/api/applications/${other.body.id}/invoices`, { type: 'cpo', request_no: `7${stamp}00001`.slice(0, 12), units: 1, unit_price: 2400 });
   check('กบล. กฟข. บันทึกเลขที่คำร้องข้ามเขตไม่ได้', r.status === 403, r.status);
   r = await call(reg, 'POST', `/api/applications/${id}/payment-exempt`, { type: 'cpo', exempt: true, reason: 'ทดสอบระบบ' });

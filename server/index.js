@@ -760,8 +760,12 @@ app.post('/api/applications/:id/invoices', requireAuth, (req, res) => {
   const unitPrice = Number(b.unit_price ?? fee.prices[0]);
   if (!fee.prices.includes(unitPrice)) fail(400, `อัตรา${fee.label} ต้องเป็น ${fee.prices.map((p) => p.toLocaleString()).join(' หรือ ')} บาท`);
   if (b.issued_date && !isDate(b.issued_date)) fail(400, 'วันที่ไม่ถูกต้อง');
-  const dup = db.prepare(`SELECT a.app_no FROM invoices i JOIN applications a ON a.id = i.application_id WHERE i.request_no = ?`).get(requestNo);
-  if (dup) fail(400, `เลขที่คำร้อง ${requestNo} ถูกใช้แล้วในคำร้อง ${dup.app_no}`);
+  // เลขที่คำร้องห้ามซ้ำกับสถานีอื่น — ในสถานีเดียวกัน ค่าทดสอบความปลอดภัยกับค่าทดสอบ CPO ใช้เลขเดียวกันได้ (แต่ประเภทเดียวกันห้ามซ้ำ)
+  const dup = db.prepare(`SELECT a.id, a.app_no, i.type FROM invoices i JOIN applications a ON a.id = i.application_id
+    WHERE i.request_no = ? AND (i.application_id <> ? OR i.type = ?)`).get(requestNo, row.id, b.type);
+  if (dup) fail(400, dup.id === row.id
+    ? `เลขที่คำร้อง ${requestNo} บันทึกเป็น${fee.label}ของสถานีนี้แล้ว`
+    : `เลขที่คำร้อง ${requestNo} ถูกใช้แล้วในคำร้อง ${dup.app_no} — เลขที่คำร้องห้ามซ้ำกับสถานีอื่น`);
   const amount = units * unitPrice;
   const note = str(b.note, 500) || null;
   const status = tx(() => {
