@@ -31,7 +31,7 @@ const PROVINCES = { // จังหวัด → พิกัดโดยปร�
 };
 // แบรนด์สมมติ (ไม่ใช่บริษัทจริง)
 const BRANDS = [
-  ['VOLTA', 'โวลตา ชาร์จจิ้ง'], ['GRNC', 'กรีนชาร์จ เน็ตเวิร์ค'], ['SPRK', 'สปาร์ค อีวี'], ['DMEV', 'ดีมอล อีวี พาร์ค'],
+  ['NOVA', 'โนวา ชาร์จจิ้ง'], ['GRNC', 'กรีนชาร์จ เน็ตเวิร์ค'], ['SPRK', 'สปาร์ค อีวี'], ['DMEV', 'ดีมอล อีวี พาร์ค'],
   ['ECO', 'อีโค่ พลัส เอนเนอร์ยี'], ['FAST', 'ฟาสต์ฟิล ชาร์จ'], ['SKY', 'สกายไลน์ โมบิลิตี้'], ['TH', 'ไทยอีวี สเตชั่น'],
 ];
 const PLACES = ['สาขาตัวเมือง', 'ริมถนนสายหลัก', 'หน้าห้างสรรพสินค้า', 'ปั๊มน้ำมัน กม.12', 'ศูนย์การค้า', 'โรงแรมริเวอร์', 'จุดพักรถ', 'ตลาดเช้า'];
@@ -112,20 +112,23 @@ async function seedData() {
     const prov = forced[i] || pick(provs);
     const [lat, lng] = PROVINCES[prov];
     const [code, brand] = pick(BRANDS);
+    // บางสถานีใช้ PEA VOLTA Platform → ผ่านเงื่อนไข 3 อัตโนมัติ (ไม่ใช้กับกลุ่มที่จำลองว่าขาดเงื่อนไข 3)
+    const volta = kind !== 'c3' && rnd() < 0.3;
     const n = int(1, 9);
     const age = kind === 'completed' ? int(150, 560) : kind === 'cancelled' ? int(60, 300) : int(5, 140);
     const requestDate = addDays(TODAY, -age);
     const chargers = Array.from({ length: int(1, 2) }, () => { const [b, m] = pick(CHARGER_MODELS); return { brand: b, model: m, kw: m.includes('22') ? 22 : Number(m.replace(/\D/g, '')), qty: int(1, 3) }; });
     const payload = {
       office: `กฟจ.${prov}`, request_date: requestDate, station_name: `${brand} ${pick(PLACES)} ${prov} ${n}`,
-      company: code, applicant_name: `บริษัท ${brand} จำกัด`, applicant_type: 'juristic',
+      applicant_name: `บริษัท ${brand} จำกัด`, applicant_type: 'juristic',
       station_address: `เลขที่ ${int(1, 999)} หมู่ ${int(1, 12)} (ที่อยู่สมมติ)`, district: 'เมือง', province: prov,
       contact_name: 'ผู้ติดต่อ (สมมติ)', email: 'demo@example.com', phone: `08${digits(8)}`,
       ca_no: `0200${digits(8)}`, meter_no: `65${digits(8)}`,
       lat: Number((lat + (rnd() - 0.5) * 0.12).toFixed(5)), lng: Number((lng + (rnd() - 0.5) * 0.12).toFixed(5)),
       location_type: pick(LOCATIONS), criteria: Array(8).fill(true), charge_channels: ['Application', 'QR Code'],
       service_hours: '24', chargers, equipment: [], revenue: ['per_kwh'], total_kva: pick([100, 160, 250, 315, 500]),
-      cpo: { system_name: `${brand} App`, provider: brand }, documents: [], test_60364: 'pea', test_61851: 'registered',
+      cpo: volta ? { platform: 'volta' }
+        : { platform: 'other', system_name: `${brand} App`, short: code, provider: `บริษัท ${brand} จำกัด`, email: 'cpo@example.com' }, documents: [], test_60364: 'pea', test_61851: 'registered',
     };
     const fd = new FormData();
     fd.append('payload', JSON.stringify(payload));
@@ -160,7 +163,7 @@ async function seedData() {
       return call(admin, 'POST', `/api/applications/${id}/attachments?condition=${cond}`, fd);
     };
     const skip = { c1: [1, 2, 3], c2: [2, 3], c3: [3] }[kind] || [];
-    for (const c of [1, 2, 3]) if (!skip.includes(c)) await ev(c);
+    for (const c of [1, 2, 3]) if (!skip.includes(c) && !(c === 3 && volta)) await ev(c);
     if (kind === 'c3' && rnd() < 0.5) await ev(3, { result: 'fail', note: 'ทดสอบครั้งแรกไม่ผ่าน รอทดสอบใหม่ (ข้อมูลสมมติ)' });
     if (kind !== 'c1' && rnd() < 0.85) await ev(4, { result: rnd() < 0.8 ? 'pass' : 'fail', note: 'IEC 60364-6 / IEC 61851 (ข้อมูลสมมติ)' });
     if (kind === 'completed') {
@@ -178,6 +181,9 @@ async function seedData() {
       'ใช้ตรวจเงื่อนไขที่ 2 กรณีผู้ใช้ไฟฟ้ารับไฟแรงต่ำ 1 เฟส/3 เฟส จากหม้อแปลงของ กฟภ.', 'กวฟ.ผวต.-01-64 แบบฟอร์มตรวจสอบการติดตั้ง (แรงต่ำ) - ตัวอย่าง.pdf', 'Installation Inspection Form - Low Voltage'],
     ['conditions', 'แบบฟอร์มตรวจสอบการติดตั้งระบบอัดประจุยานยนต์ไฟฟ้าก่อนติดตั้งมิเตอร์ — รับไฟฟ้าแรงสูงโดยติดตั้งหม้อแปลงเฉพาะราย (กวฟ.ผวต.-02-64)',
       'ใช้ตรวจเงื่อนไขที่ 2 กรณีผู้ใช้ไฟฟ้ารับไฟแรงสูง 22/33 kV และติดตั้งหม้อแปลงของตนเอง', 'กวฟ.ผวต.-02-64 แบบฟอร์มตรวจสอบการติดตั้ง (แรงสูง) - ตัวอย่าง.pdf', 'Installation Inspection Form - High Voltage, dedicated transformer'],
+    ['conditions', 'หนังสือ กบท.(บย)683/2567 — อนุมัติอัตรา Low Priority ให้ผู้ประกอบการสถานีอัดประจุไฟฟ้าผ่าน PEA VOLTA Platform',
+      'อนุมัติ ผวก. 13 พ.ค. 2567 · PEA VOLTA Platform เทียบเคียงกับหลักเกณฑ์สำหรับการทดสอบปฏิบัติการระบบโครงข่ายไฟฟ้าฯ (CPO) — สถานีที่ใช้ PEA VOLTA ผ่านเงื่อนไขที่ 3 โดยไม่ต้องทดสอบ CPO–PEA EVMS',
+      'หนังสือ กบท.(บย)683-2567 - ตัวอย่าง.pdf', 'PEA VOLTA Platform - Low Priority rate approval letter'],
     ['contract', 'ข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้า (Low Priority)',
       'จัดทำและลงนามกับผู้ใช้ไฟฟ้าก่อนบันทึกวันที่มีผลอัตรา Low Priority', 'ข้อตกลงแก้ไขเพิ่มเติมสัญญาซื้อขายไฟฟ้า - ตัวอย่าง.pdf', 'Power Purchase Agreement Amendment - Low Priority'],
   ];

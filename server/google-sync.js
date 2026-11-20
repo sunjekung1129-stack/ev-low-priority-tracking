@@ -122,6 +122,11 @@ function buildRow(appId) {
   const inv = db.prepare('SELECT * FROM invoices WHERE application_id = ? ORDER BY id').all(a.id);
   const by = (n) => att.filter((t) => t.condition_no === n);
   const c = Object.fromEntries([1, 2, 3, 4].map((n) => [n, evidenceSummary(by(n))]));
+  // PEA VOLTA Platform ผ่านเงื่อนไขที่ 3 โดยไม่ต้องทดสอบ CPO (หนังสือ กบท.(บย)683/2567)
+  const cpo = d.cpo || {};
+  if (cpo.platform ? cpo.platform === 'volta' : /volta/i.test(cpo.system_name || '')) {
+    c[3] = { state: 'ผ่าน (PEA VOLTA)', link: c[3].link || 'เทียบเคียงหลักเกณฑ์ทดสอบ CPO ตามหนังสือ กบท.(บย)683/2567' };
+  }
   const form = by(0).at(-1);
   const invOf = (type) => inv.filter((i) => i.type === type);
   const payState = (type) => {

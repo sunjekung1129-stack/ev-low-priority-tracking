@@ -169,7 +169,8 @@ const paymentDone = (appId) => paymentInfo(appId).done;
 
 const canUpload = (user, row, cond) =>
   isOpen(row) && CONDITIONS[cond]?.roles.includes(user.role) && inArea(user, row)
-  && (cond < 1 || cond > 3 || paymentDone(row.id)); // เงื่อนไข 1–3 ต้องชำระค่าทดสอบครบก่อน
+  && (cond < 1 || cond > 3 || paymentDone(row.id)) // เงื่อนไข 1–3 ต้องชำระค่าทดสอบครบก่อน
+  && !(cond === 3 && isVolta(row.data)); // PEA VOLTA ผ่านเงื่อนไข 3 แล้ว ไม่ต้องทดสอบ CPO
 
 // กฟข. ของ กฟส. จากรายชื่อในระบบ
 const officeRow = (name) => db.prepare('SELECT * FROM offices WHERE name = ? AND active = 1').get(String(name || ''));
@@ -178,15 +179,30 @@ const canInvoice = (user, row) => row.status !== 'cancelled' && (user.role === '
 const canRecordLow = (user, row) =>
   (row.status === 'ready' || row.status === 'completed') && (user.role === 'admin' || sameOffice(user, row));
 
-// เงื่อนไขครบ = มีหลักฐานอย่างน้อย 1 รายการที่ผลไม่ใช่ "ไม่ผ่าน"
+// สถานีที่ใช้ PEA VOLTA Platform (ข้อ 8): ผ่านเงื่อนไขที่ 3 โดยไม่ต้องทดสอบ CPO–PEA EVMS
+// เพราะเทียบเคียงกับหลักเกณฑ์การทดสอบ CPO ตามหนังสือ กบท.(บย)683/2567 (อนุมัติ ผวก. 13 พ.ค. 2567)
+// ข้อมูลเก่าที่ยังไม่มี cpo.platform ดูจากชื่อระบบ CPO ที่มีคำว่า VOLTA
+const VOLTA_LETTER = 'กบท.(บย)683/2567';
+const VOLTA = (alias = 'a') => `(COALESCE(json_extract(${alias}.data, '$.cpo.platform'),
+  CASE WHEN json_extract(${alias}.data, '$.cpo.system_name') LIKE '%VOLTA%' THEN 'volta' END) = 'volta')`;
+function isVolta(data) {
+  const cpo = (typeof data === 'string' ? JSON.parse(data || '{}') : data || {}).cpo || {};
+  return cpo.platform ? cpo.platform === 'volta' : /volta/i.test(cpo.system_name || '');
+}
+// ชื่อย่อ CPO สำหรับกรอบสี่เหลี่ยมในรายการคำร้อง (ข้อมูลเก่าใช้ชื่อย่อบริษัทที่นำเข้าจาก Excel)
+const CPO_SHORT = (alias = 'a') => `CASE WHEN ${VOLTA(alias)} THEN 'VOLTA'
+  ELSE COALESCE(NULLIF(json_extract(${alias}.data, '$.cpo.short'), ''), ${alias}.company) END`;
+
+// เงื่อนไขครบ = มีหลักฐานอย่างน้อย 1 รายการที่ผลไม่ใช่ "ไม่ผ่าน" (เงื่อนไข 3: หรือใช้ PEA VOLTA)
 const MET = (n, alias = 'a') =>
-  `EXISTS (SELECT 1 FROM attachments t WHERE t.application_id = ${alias}.id AND t.condition_no = ${n} AND COALESCE(t.result,'pass') <> 'fail')`;
+  `(${n === 3 ? `${VOLTA(alias)} OR ` : ''}EXISTS (SELECT 1 FROM attachments t WHERE t.application_id = ${alias}.id AND t.condition_no = ${n} AND COALESCE(t.result,'pass') <> 'fail'))`;
 
 function conditionFlags(appId) {
   const rows = db.prepare(`SELECT DISTINCT condition_no FROM attachments
     WHERE application_id = ? AND COALESCE(result,'pass') <> 'fail'`).all(appId);
   const set = new Set(rows.map((r) => r.condition_no));
-  return { c1: set.has(1), c2: set.has(2), c3: set.has(3) };
+  const volta = isVolta(db.prepare('SELECT data FROM applications WHERE id = ?').get(appId)?.data);
+  return { c1: set.has(1), c2: set.has(2), c3: set.has(3) || volta, c3_volta: volta };
 }
 
 // คำนวณสถานะใหม่หลังเพิ่ม/ลบหลักฐาน และแจ้งเตือนเมื่อเงื่อนไขครบ 3 ข้อ
@@ -220,7 +236,7 @@ function afterPaymentChange(appId, userId, wasDone) {
   if (!wasDone && paymentDone(appId)) {
     logEvent(appId, userId, 'paid', 'ชำระเงินค่าทดสอบครบแล้ว — ตรวจสอบเงื่อนไข 1–3 ได้');
     const msg = `${row.app_no} ${row.station_name}: ชำระเงินค่าทดสอบครบแล้ว`;
-    notify(tfdUsers(), appId, 'paid', `${msg} — ดำเนินการทดสอบระบบ CPO กับ PEA EVMS ได้`);
+    if (!isVolta(row.data)) notify(tfdUsers(), appId, 'paid', `${msg} — ดำเนินการทดสอบระบบ CPO กับ PEA EVMS ได้`);
     notify(regionUsersOf(row.region), appId, 'paid', `${msg} — ดำเนินการตรวจวัดทดสอบความปลอดภัยได้`);
   }
   return recomputeStatus(appId, userId);
@@ -270,12 +286,16 @@ function normalizeForm(body) {
     equipment_total_kw: sumKw(equipment),
     revenue: strList(b.revenue),
     revenue_other: str(b.revenue_other, 200),
-    cpo: {
-      system_name: str(b.cpo?.system_name, 200),
-      provider: str(b.cpo?.provider, 200),
-      email: str(b.cpo?.email, 200),
-      phone: str(b.cpo?.phone, 50),
-    },
+    cpo: pick(b.cpo?.platform, ['volta', 'other']) === 'volta'
+      ? { platform: 'volta', system_name: 'PEA VOLTA', short: 'VOLTA', provider: 'การไฟฟ้าส่วนภูมิภาค (กฟภ.)', email: '', phone: '' }
+      : {
+        platform: pick(b.cpo?.platform, ['other']),
+        system_name: str(b.cpo?.system_name, 200),
+        short: str(b.cpo?.short, 8).toUpperCase(),
+        provider: str(b.cpo?.provider, 200),
+        email: str(b.cpo?.email, 200),
+        phone: str(b.cpo?.phone, 50),
+      },
     documents: strList(b.documents, 60),
     documents_other: str(b.documents_other, 500),
     test_60364: pick(b.test_60364, ['pea', 'third_party']),
@@ -292,7 +312,6 @@ function normalizeForm(body) {
     request_date: isDate(b.request_date) ? b.request_date : null,
     station_name: str(b.station_name, 300),
     station_address: str(b.station_address, 1000),
-    company: str(b.company, 100),
     applicant_name: str(b.applicant_name, 300),
     contact_name: str(b.contact_name, 200),
     email: str(b.email, 200),
@@ -315,6 +334,12 @@ function normalizeForm(body) {
   if (cols.lat != null && (cols.lat < -90 || cols.lat > 90)) errors.push('ข้อ 4 ค่า Latitude ไม่ถูกต้อง');
   if (cols.lng != null && (cols.lng < -180 || cols.lng > 180)) errors.push('ข้อ 4 ค่า Longitude ไม่ถูกต้อง');
   if (!chargers.some((c) => c.qty > 0 && (c.brand || c.model))) errors.push('ข้อ 5 รายละเอียดเครื่องอัดประจุไฟฟ้าอย่างน้อย 1 รายการ');
+  if (!data.cpo.platform) errors.push('ข้อ 8 ระบบ CPO (เลือก PEA VOLTA หรืออื่นๆ)');
+  if (data.cpo.platform === 'other') {
+    if (!data.cpo.system_name) errors.push('ข้อ 8 ชื่อระบบให้บริการ (CPO / Platform)');
+    if (!data.cpo.short) errors.push('ข้อ 8 ชื่อย่อ CPO');
+    if (!data.cpo.provider) errors.push('ข้อ 8 ชื่อผู้ให้บริการ (CPO)');
+  }
   if (!data.test_60364) errors.push('ข้อ 9.1 ผู้ดำเนินการตรวจวัดตาม IEC 60364-6');
   if (!data.test_61851) errors.push('ข้อ 9.2 การทดสอบตาม IEC 61851');
 
@@ -371,14 +396,15 @@ function listApplications(user, q = {}) {
   if (q.q) {
     const like = `%${String(q.q).trim()}%`;
     where.push(`(a.app_no LIKE ? OR a.station_name LIKE ? OR a.applicant_name LIKE ? OR a.company LIKE ?
-      OR a.ca_no LIKE ? OR a.meter_no LIKE ? OR a.province LIKE ? OR a.office LIKE ?)`);
-    params.push(like, like, like, like, like, like, like, like);
+      OR a.ca_no LIKE ? OR a.meter_no LIKE ? OR a.province LIKE ? OR a.office LIKE ?
+      OR json_extract(a.data, '$.cpo.short') LIKE ? OR json_extract(a.data, '$.cpo.system_name') LIKE ?)`);
+    params.push(like, like, like, like, like, like, like, like, like, like);
   }
   return db.prepare(`
     SELECT a.id, a.app_no, a.office, a.region, a.province, a.district, a.ca_no, a.meter_no, a.request_date,
            a.station_name, a.company, a.applicant_name, a.total_kw, a.total_kva, a.status, a.ready_at,
            a.low_effective_date, a.low_letter_no, a.completed_at, a.created_at, a.source, a.lat, a.lng,
-           ${MET(1)} AS c1, ${MET(2)} AS c2, ${MET(3)} AS c3,
+           ${MET(1)} AS c1, ${MET(2)} AS c2, ${MET(3)} AS c3, ${VOLTA()} AS volta, ${CPO_SHORT()} AS cpo_short,
            (SELECT group_concat(request_no, ' ') FROM invoices i WHERE i.application_id = a.id AND i.type = 'safety') AS inv_safety,
            (SELECT group_concat(request_no, ' ') FROM invoices i WHERE i.application_id = a.id AND i.type = 'cpo') AS inv_cpo,
            ${PAID()} AS paid,
@@ -387,7 +413,7 @@ function listApplications(user, q = {}) {
     WHERE ${where.join(' AND ')}
     ORDER BY CASE a.status WHEN 'ready' THEN 0 WHEN 'pending' THEN 1 WHEN 'completed' THEN 2 ELSE 3 END,
              COALESCE(a.request_date, a.created_at) DESC, a.id DESC
-    LIMIT 2000`).all(...params).map((r) => ({ ...r, c1: !!r.c1, c2: !!r.c2, c3: !!r.c3, paid: !!r.paid }));
+    LIMIT 2000`).all(...params).map((r) => ({ ...r, c1: !!r.c1, c2: !!r.c2, c3: !!r.c3, volta: !!r.volta, paid: !!r.paid }));
 }
 
 // ---------------------------------------------------------------- applications
@@ -430,7 +456,8 @@ app.get('/api/applications', requireAuth, (req, res) => res.json(listApplication
 app.get('/api/map', requireAuth, (req, res) => {
   const rows = db.prepare(`
     SELECT a.id, a.app_no, a.office, a.region, a.province, a.station_name, a.company, a.applicant_name, a.status,
-           a.low_effective_date, a.lat, a.lng, ${MET(1)} AS c1, ${MET(2)} AS c2, ${MET(3)} AS c3, ${PAID()} AS paid
+           a.low_effective_date, a.lat, a.lng, ${MET(1)} AS c1, ${MET(2)} AS c2, ${MET(3)} AS c3, ${PAID()} AS paid,
+           ${CPO_SHORT()} AS cpo_short
     FROM applications a WHERE a.lat IS NOT NULL AND a.lng IS NOT NULL`).all();
   const all = req.query.scope === 'all';
   res.json(rows.filter((r) => all || inArea(req.user, r)).map((r) => (inArea(req.user, r)
@@ -442,21 +469,22 @@ app.get('/api/applications/export.csv', requireAuth, (req, res) => {
   const STATUS = { pending: 'รอเงื่อนไข', ready: 'รอเปลี่ยนอัตราใน SAP', completed: 'เสร็จสมบูรณ์', cancelled: 'ยกเลิก' };
   const yn = (b) => (b ? 'ครบ' : '-');
   const SAFETY_TEXT = { none: 'ยังไม่มีผล', pass: 'ผ่าน', recorded: 'บันทึกแล้ว', fail: 'ไม่ผ่าน' };
-  const header = ['เลขที่คำร้อง', 'วันที่ยื่นคำร้อง', 'ชื่อสถานี', 'บริษัท', 'ผู้ขอใช้ไฟฟ้า', 'กฟส.ในพื้นที่ใช้ไฟฟ้า', 'กฟข.', 'อำเภอ', 'จังหวัด',
+  const header = ['เลขที่คำร้อง', 'วันที่ยื่นคำร้อง', 'ชื่อสถานี', 'ชื่อย่อ CPO / บริษัท', 'ผู้ขอใช้ไฟฟ้า', 'กฟส.ในพื้นที่ใช้ไฟฟ้า', 'กฟข.', 'อำเภอ', 'จังหวัด',
     'CA', 'Meter No.', 'kW รวม', 'kVA', 'เงื่อนไข 1 ขึ้นทะเบียน', 'เงื่อนไข 2 ตรวจการติดตั้ง', 'เงื่อนไข 3 ทดสอบ CPO-EVMS',
     'เลขที่คำร้องค่าทดสอบความปลอดภัย', 'เลขที่คำร้องค่าทดสอบ CPO', 'ชำระค่าทดสอบครบ', 'ผลทดสอบความปลอดภัย',
     'สถานะ', 'วันที่ครบเงื่อนไข', 'หนังสือเปลี่ยนอัตรา', 'วันที่มีผลอัตรา Low'];
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = listApplications(req.user, req.query).map((r) => [r.app_no, r.request_date, r.station_name, r.company,
+  const lines = listApplications(req.user, req.query).map((r) => [r.app_no, r.request_date, r.station_name, r.cpo_short,
     r.applicant_name, r.office, r.region, r.district, r.province, r.ca_no, r.meter_no, r.total_kw, r.total_kva,
-    yn(r.c1), yn(r.c2), yn(r.c3), r.inv_safety, r.inv_cpo, r.paid ? 'ครบ' : 'ค้างชำระ', SAFETY_TEXT[r.safety], STATUS[r.status], r.ready_at, r.low_letter_no, r.low_effective_date].map(esc).join(','));
+    yn(r.c1), yn(r.c2), r.volta ? 'ครบ (PEA VOLTA)' : yn(r.c3), r.inv_safety, r.inv_cpo, r.paid ? 'ครบ' : 'ค้างชำระ', SAFETY_TEXT[r.safety], STATUS[r.status], r.ready_at, r.low_letter_no, r.low_effective_date].map(esc).join(','));
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', contentDisposition(`ev-low-priority-${now().slice(0, 10)}.csv`));
   res.send('﻿' + [header.map(esc).join(','), ...lines].join('\r\n'));
 });
 
+// company (ชื่อย่อบริษัท) ไม่อยู่ในแบบฟอร์มแล้ว — คงค่าเดิมของข้อมูลที่นำเข้าจาก Excel ไว้
 const APP_COLS = ['region', 'province', 'district', 'ca_no', 'meter_no', 'request_date', 'station_name', 'station_address',
-  'company', 'applicant_name', 'contact_name', 'email', 'phone', 'lat', 'lng', 'total_kw', 'total_kva'];
+  'applicant_name', 'contact_name', 'email', 'phone', 'lat', 'lng', 'total_kw', 'total_kva'];
 
 // ไฟล์ PDF ที่แนบมาพร้อมการรับคำร้อง: แบบฟอร์มคำร้อง + หลักฐานเงื่อนไข 1–3
 // ตอนรับคำร้องแนบได้เฉพาะแบบฟอร์มคำร้อง — หลักฐานเงื่อนไข 1–3 บันทึกได้หลังชำระค่าทดสอบครบ
@@ -512,9 +540,8 @@ app.post('/api/applications', requireAuth, requireRole('field', 'admin'), intake
         logEvent(newId, req.user.id, 'upload', `แนบ${condName(f.cond)} พร้อมคำร้อง: ${f.originalname}`);
       }
     }
-    const hasCpo = files.some((f) => f.cond === 3);
-    notify(tfdUsers(), newId, 'new', `คำร้องใหม่ ${appNo} ${cols.station_name} (${office}) `
-      + (hasCpo ? 'แนบผลทดสอบระบบ CPO กับ PEA EVMS มาแล้ว' : 'รอผลการทดสอบระบบ CPO กับ PEA EVMS'));
+    if (isVolta(data)) logEvent(newId, req.user.id, 'volta', `ใช้ PEA VOLTA Platform — ผ่านเงื่อนไขที่ 3 (เทียบเคียงหลักเกณฑ์การทดสอบ CPO ตามหนังสือ ${VOLTA_LETTER})`);
+    else notify(tfdUsers(), newId, 'new', `คำร้องใหม่ ${appNo} ${cols.station_name} (${office}) รอผลการทดสอบระบบ CPO กับ PEA EVMS`);
     notify(regionUsersOf(cols.region), newId, 'new',
       `คำร้องใหม่ ${appNo} ${cols.station_name} (${office}) รอผลการตรวจวัดทดสอบความปลอดภัย`);
     return { id: newId, status: recomputeStatus(newId, req.user.id) };
@@ -546,6 +573,9 @@ app.get('/api/applications/:id', requireAuth, (req, res) => {
     created_by_name: creator?.display_name,
     sap_recorded_by_name: sapBy?.display_name,
     conditions: conditionFlags(row.id),
+    cpo_short: db.prepare(`SELECT ${CPO_SHORT()} AS s FROM applications a WHERE a.id = ?`).get(row.id).s,
+    volta_doc: isVolta(row.data)
+      ? db.prepare('SELECT id, title FROM documents WHERE title LIKE ? ORDER BY id LIMIT 1').get(`%${VOLTA_LETTER}%`) || null : null,
     attachments: attachments.map((a) => ({
       ...a, has_file: !!a.has_file, can_delete: isOpen(row) && (u.role === 'admin' || a.uploaded_by === u.id),
     })),
@@ -578,8 +608,14 @@ app.put('/api/applications/:id', requireAuth, (req, res) => {
     db.prepare(`UPDATE applications SET office = ?, ${APP_COLS.map((k) => `${k} = ?`).join(', ')}, data = ?, updated_at = ? WHERE id = ?`)
       .run(office, ...APP_COLS.map((k) => cols[k]), JSON.stringify(merged), now(), row.id);
     logEvent(row.id, req.user.id, 'update', 'แก้ไขข้อมูลคำร้อง');
+    if (isVolta(row.data) !== isVolta(merged)) {
+      logEvent(row.id, req.user.id, 'volta', isVolta(merged)
+        ? `เปลี่ยนระบบ CPO เป็น PEA VOLTA Platform — ผ่านเงื่อนไขที่ 3 (ตามหนังสือ ${VOLTA_LETTER})`
+        : 'เปลี่ยนระบบ CPO จาก PEA VOLTA เป็นระบบอื่น — ต้องมีผลทดสอบ CPO–PEA EVMS (เงื่อนไขที่ 3)');
+    }
   });
-  res.json({ ok: true });
+  const status = recomputeStatus(row.id, req.user.id);
+  res.json({ ok: true, status });
 });
 
 app.post('/api/applications/:id/cancel', requireAuth, (req, res) => {

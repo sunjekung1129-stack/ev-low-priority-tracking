@@ -20,7 +20,8 @@ async function call(c, method, url, body) {
 const pdf = (text) => new Blob([`%PDF-1.4 ${text}`], { type: 'application/pdf' });
 const stamp = Date.now().toString().slice(-6);
 const form = {
-  station_name: `สถานีทดสอบอัตโนมัติ ${stamp}`, applicant_name: 'บจ. ทดสอบ', company: 'TEST',
+  station_name: `สถานีทดสอบอัตโนมัติ ${stamp}`, applicant_name: 'บจ. ทดสอบ',
+  cpo: { platform: 'other', system_name: 'Test CPO App', short: 'tst', provider: 'บจ. ทดสอบ' },
   ca_no: `0200${stamp}00`, meter_no: `65${stamp}00`, location_type: 'โรงแรม', criteria: Array(8).fill(true),
   charge_channels: ['QR Code'], service_hours: '24', chargers: [{ brand: 'ABB', model: 'Terra', kw: 60, qty: 2 }],
   test_60364: 'pea', test_61851: 'registered', lat: 18.79, lng: 98.98,
@@ -185,6 +186,35 @@ const multipart = (payload, files = {}) => {
   r = await call(admin, 'DELETE', `/api/documents/${docId}`);
   const gone = await fetch(`${B}/api/documents/${docId}/file`, { headers: { cookie: admin } });
   check('ลบเอกสารแล้วดาวน์โหลดไม่ได้', r.status === 200 && gone.status === 404, gone.status);
+
+  // ข้อ 8 ระบบ CPO: บังคับกรอก, dropdown PEA VOLTA / อื่นๆ, ชื่อย่อ CPO ในรายการ
+  const mk = (extra) => multipart({ ...form, ca_no: `0400${stamp}${Math.random().toString().slice(2, 6)}`, meter_no: `67${stamp}${Math.random().toString().slice(2, 6)}`, ...extra }, { form_pdf: 'คำร้อง.pdf' });
+  r = await call(f1, 'POST', '/api/applications', mk({ cpo: {} }));
+  check('ไม่เลือกระบบ CPO (ข้อ 8) → ถูกปฏิเสธ', r.status === 400 && /ข้อ 8/.test(r.body.error || ''), JSON.stringify(r.body));
+  r = await call(f1, 'POST', '/api/applications', mk({ cpo: { platform: 'other', system_name: 'X', provider: 'Y' } }));
+  check('ระบบ CPO อื่นๆ ไม่ระบุชื่อย่อ CPO → ถูกปฏิเสธ', r.status === 400 && /ชื่อย่อ CPO/.test(r.body.error || ''), JSON.stringify(r.body));
+  check('รายการคำร้องแสดงชื่อย่อ CPO (ตัวพิมพ์ใหญ่)', all.find((x) => x.id === id)?.cpo_short === 'TST', all.find((x) => x.id === id)?.cpo_short);
+  r = await call(f1, 'POST', '/api/applications', mk({ station_name: `สถานี VOLTA ${stamp}`, cpo: { platform: 'volta', system_name: 'ไม่ควรใช้' } }));
+  const vid = r.body.id;
+  let vd = (await call(f1, 'GET', `/api/applications/${vid}`)).body;
+  check('PEA VOLTA → ผ่านเงื่อนไข 3 ทันที, ชื่อย่อ VOLTA', r.status === 201 && vd.conditions.c3 && vd.conditions.c3_volta && vd.cpo_short === 'VOLTA' && vd.data.cpo.system_name === 'PEA VOLTA', JSON.stringify(vd.conditions));
+  check('PEA VOLTA บันทึกประวัติการผ่านเงื่อนไข 3', vd.events.some((e) => /PEA VOLTA/.test(e.detail || '')));
+  const tfdN = (await call(tfd, 'GET', '/api/notifications')).body;
+  check('PEA VOLTA ไม่แจ้ง กทฟ. ให้ทดสอบ CPO', !tfdN.items.some((x) => x.application_id === vid));
+  const miss3 = (await call(f1, 'GET', '/api/applications?missing=3')).body;
+  check('ตัวกรอง "ขาดเงื่อนไข 3" ไม่รวมสถานี PEA VOLTA', !miss3.some((x) => x.id === vid));
+  for (const t of ['safety', 'cpo']) await call(f1, 'POST', `/api/applications/${vid}/payment-exempt`, { type: t, exempt: true, reason: 'ทดสอบ' });
+  for (const c of [1, 2]) r = await call(f1, 'POST', `/api/applications/${vid}/evidence?condition=${c}`, { url: 'https://drive.google.com/file/d/v/view', result: 'pass' });
+  check('PEA VOLTA ครบเงื่อนไข 1–2 → รอเปลี่ยนอัตรา Low', r.body.status === 'ready', JSON.stringify(r.body));
+  r = await call(tfd, 'POST', `/api/applications/${vid}/evidence?condition=3`, { url: 'https://drive.google.com/file/d/x/view' });
+  check('PEA VOLTA ไม่ต้องบันทึกเงื่อนไข 3 (กทฟ. บันทึกไม่ได้)', r.status === 403, r.status);
+  const vcsv = (await call(admin, 'GET', '/api/applications/export.csv')).body;
+  check('CSV เงื่อนไข 3 ของ PEA VOLTA = ครบ (PEA VOLTA)', vcsv.split('\n').some((l) => l.includes(vd.app_no) && l.includes('ครบ (PEA VOLTA)')));
+  r = await call(f1, 'PUT', `/api/applications/${vid}`, { ...form, station_name: vd.station_name, ca_no: vd.ca_no, meter_no: vd.meter_no,
+    cpo: { platform: 'other', system_name: 'Other App', short: 'OTH', provider: 'บจ. อื่น' } });
+  check('เปลี่ยนจาก PEA VOLTA เป็นระบบอื่น → กลับเป็นรอเงื่อนไข 3', r.status === 200 && r.body.status === 'pending', JSON.stringify(r.body));
+  vd = (await call(f1, 'GET', `/api/applications/${vid}`)).body;
+  check('เปลี่ยนระบบ CPO แล้วชื่อย่อ/เงื่อนไข 3 ตามระบบใหม่', vd.cpo_short === 'OTH' && !vd.conditions.c3, `${vd.cpo_short} ${vd.conditions.c3}`);
 
   const stats = (await call(admin, 'GET', '/api/stats')).body;
   check('สรุปสถิติตอบกลับได้', typeof stats.total === 'number' && stats.total >= 1);

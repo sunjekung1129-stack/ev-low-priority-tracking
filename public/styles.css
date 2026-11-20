@@ -127,6 +127,18 @@ svg.i-lg { width: 22px; height: 22px; }
   border: 1px solid var(--brand-100);
 }
 .avatar.round { border-radius: 50%; }
+.avatar.long { font-size: .6rem; letter-spacing: 0; }
+.avatar.lg.long { font-size: .78rem; }
+.cpo-note { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; padding: 10px 12px; border-radius: 10px;
+  background: var(--brand-50); border: 1px solid var(--brand-100); color: var(--text, inherit); font-size: .86rem; line-height: 1.5; }
+.cpo-note svg { flex-shrink: 0; margin-top: 3px; color: var(--brand); }
+.cpo-note small { color: var(--muted); }
+.volta-ev { display: flex; gap: 10px; align-items: flex-start; margin: 4px 16px 14px; padding: 12px 14px; border-radius: 12px;
+  background: var(--brand-50); border: 1px solid var(--brand-100); font-size: .88rem; }
+.volta-ev > svg { flex-shrink: 0; margin-top: 3px; color: var(--brand); }
+.volta-ev > div { display: grid; gap: 4px; justify-items: start; }
+.volta-ev small { color: var(--muted); line-height: 1.5; }
+.volta-ev .btn { margin-top: 6px; }
 .avatar.lg { width: 56px; height: 56px; border-radius: 14px; font-size: 1rem; }
 
 .main { min-width: 0; display: flex; flex-direction: column; }

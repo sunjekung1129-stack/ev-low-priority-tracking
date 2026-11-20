@@ -101,7 +101,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check('เงื่อนไข 2 (ลิงก์) ได้ · เงื่อนไข 1 ใส่เลขที่หนังสืออย่างเดียวไม่ได้ · เงื่อนไข 3 โดย กฟส. ไม่ได้', r.ev2 === 201 && r.ev2docOnly === 400 && r.ev3byField === 403, `${r.ev2} ${r.ev2docOnly} ${r.ev3byField}`);
   check('รับคำร้องใหม่พร้อม PDF', r.create[0] === 201, JSON.stringify(r.create));
   check('ส่งออก CSV + สถิติ', r.csv === 200 && r.stats === 41, `${r.csv} ${r.stats}`);
-  check('เอกสารตัวอย่าง 4 รายการ เปิดไฟล์ได้', r.docs[0] === 4 && r.docs[1] === 200 && r.docs[2] > 300, JSON.stringify(r.docs));
+  check('เอกสารตัวอย่าง 5 รายการ (รวมหนังสือ PEA VOLTA) เปิดไฟล์ได้', r.docs[0] === 5 && r.docs[1] === 200 && r.docs[2] > 300, JSON.stringify(r.docs));
 
   // ข้อมูลยังอยู่หลังรีโหลด (IndexedDB)
   await sleep(800);

@@ -161,11 +161,15 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const lookup = (pairs, key) => (pairs.find(([k]) => k === key) || [])[1] || '';
 const regionLabel = (r) => String(r || '').replace(/^\d+\./, '');
-const initials = (company, station) => {
-  const c = String(company || '').trim();
-  if (c) return esc(c.length <= 4 ? c.toUpperCase() : c.slice(0, 2).toUpperCase());
-  return esc(String(station || '?').trim().slice(0, 1).toUpperCase());
+// กรอบสี่เหลี่ยมหน้าชื่อสถานี: ชื่อย่อ CPO (PEA VOLTA = VOLTA) — ถ้าไม่มีใช้ตัวแรกของชื่อสถานี
+const avatarBox = (short, station, cls = '') => {
+  const c = String(short || '').trim().toUpperCase();
+  const t = c ? (c.length <= 5 ? c : c.slice(0, 4)) : String(station || '?').trim().slice(0, 1).toUpperCase();
+  return `<span class="avatar ${cls} ${t.length >= 4 ? 'long' : ''}" title="${c ? `CPO: ${esc(c)}` : ''}">${esc(t)}</span>`;
 };
+// ระบบ CPO ของคำร้อง: volta | other | '' (ข้อมูลเก่าที่ไม่มี platform ดูจากชื่อระบบ)
+const cpoPlatform = (cpo = {}) => cpo.platform || (/volta/i.test(cpo.system_name || '') ? 'volta' : cpo.system_name ? 'other' : '');
+const VOLTA_NOTE = 'กรณีใช้ PEA VOLTA Platform เทียบเคียงกับหลักเกณฑ์สำหรับการทดสอบปฏิบัติการระบบโครงข่ายไฟฟ้าฯ (CPO)';
 
 const toDate = (s) => (s ? new Date(s.length === 10 ? `${s}T00:00:00` : s.replace(' ', 'T')) : null);
 function fmtDate(s) {
@@ -569,7 +573,7 @@ async function renderMap() {
   function draw() {
     const q = ($('#mapQ').value || '').trim().toLowerCase();
     const visible = located.filter((r) => !hidden.has(r.status)
-      && (!q || [r.station_name, r.province, r.office, r.company, r.app_no].join(' ').toLowerCase().includes(q)));
+      && (!q || [r.station_name, r.province, r.office, r.cpo_short, r.app_no].join(' ').toLowerCase().includes(q)));
     if (layer) {
       layer.clearLayers();
       markers.clear();
@@ -720,7 +724,7 @@ async function loadList() {
   body.innerHTML = rows.map((r) => {
     const age = daysBetween(r.request_date || r.created_at, r.low_effective_date || r.completed_at);
     return `<tr data-id="${r.id}">
-      <td><div class="cell-station"><span class="avatar">${initials(r.company, r.station_name)}</span>
+      <td><div class="cell-station">${avatarBox(r.cpo_short, r.station_name)}
         <div><div class="t">${esc(r.station_name)}</div><div class="s">${r.ca_no ? `CA <span class="mono">${esc(r.ca_no)}</span>` : '<span class="faint">ไม่มี CA</span>'}${r.applicant_name ? ` · ${esc(r.applicant_name)}` : ''}</div></div></div></td>
       <td class="cell-2"><div class="t nowrap">${esc(r.office)}</div><div class="s nowrap">${esc([regionLabel(r.region), r.province].filter(Boolean).join(' · '))}</div></td>
       <td>${condProgress(r)}${r.status === 'pending' && !r.paid ? `<div class="unpaid">${icon('receipt', 'i-sm')}ค้างชำระค่าทดสอบ</div>` : ''}</td>
@@ -781,6 +785,7 @@ async function renderForm(id) {
   const channels = new Set(d.charge_channels || []);
   const revenue = new Set(d.revenue || []);
   const cpo = d.cpo || {};
+  const cpoPlat = cpoPlatform(cpo);
   const dl = (listId, items) => `<datalist id="${listId}">${items.map((o) => `<option value="${esc(o)}">`).join('')}</datalist>`;
 
   const sections = [
@@ -822,8 +827,6 @@ async function renderForm(id) {
                <label class="field"><span>กฟส.ในพื้นที่ใช้ไฟฟ้า</span><input type="text" value="${esc(curOffice)}" disabled></label>`}
           <label class="field"><span>วันที่ยื่นคำร้อง</span><input type="date" name="request_date" value="${esc(a?.request_date || todayISO())}"></label>
           <label class="field span2"><span class="req">ชื่อสถานีอัดประจุไฟฟ้า</span><input type="text" name="station_name" value="${esc(a?.station_name)}"></label>
-          <label class="field"><span>ชื่อย่อบริษัท / แบรนด์</span><input type="text" name="company" value="${esc(a?.company)}" placeholder="เช่น OR, EA, EGAT"></label>
-          <div></div>
           <label class="field span2"><span class="req">ชื่อผู้ขอใช้ไฟฟ้า (นิติบุคคล/บุคคล)</span><input type="text" name="applicant_name" value="${esc(a?.applicant_name)}"></label>
           <div class="field span2"><span>ประเภทผู้ขอใช้ไฟฟ้า</span><div class="row" style="gap:4px 18px">${APPLICANT_TYPES.map(([k, t]) => radio('applicant_type', k, t, d.applicant_type)).join('')}</div></div>
           <label class="field span-all"><span>ที่อยู่สถานีอัดประจุไฟฟ้า</span><textarea name="station_address" rows="2">${esc(a?.station_address)}</textarea></label>
@@ -886,11 +889,20 @@ async function renderForm(id) {
           : checkbox('revenue', k, t, revenue.has(k)))).join('')}</div>`)}
       ${fsec('8', '8', 'ระบบควบคุมและบริหารจัดการสถานี (Charging Point Operator: CPO)', `
         <div class="grid g2">
-          <label class="field"><span>ชื่อระบบให้บริการ (CPO / Platform)</span><input type="text" name="cpo_system_name" value="${esc(cpo.system_name)}"></label>
-          <label class="field"><span>ชื่อผู้ให้บริการ (CPO)</span><input type="text" name="cpo_provider" value="${esc(cpo.provider)}"></label>
+          <label class="field"><span class="req">ระบบ CPO / Platform</span><select name="cpo_platform" id="cpoPlatform" required>
+            <option value="">เลือกระบบ CPO</option>
+            <option value="volta" ${cpoPlat === 'volta' ? 'selected' : ''}>PEA VOLTA</option>
+            <option value="other" ${cpoPlat === 'other' ? 'selected' : ''}>อื่นๆ (ระบุเอง)</option></select></label>
+          <div></div>
+        </div>
+        <div class="grid g2" id="cpoOther" style="margin-top:12px" ${cpoPlat === 'other' ? '' : 'hidden'}>
+          <label class="field"><span class="req">ชื่อระบบให้บริการ (CPO / Platform)</span><input type="text" name="cpo_system_name" value="${esc(cpoPlat === 'other' ? cpo.system_name : '')}"></label>
+          <label class="field"><span class="req">ชื่อย่อ CPO</span><input type="text" name="cpo_short" maxlength="8" value="${esc(cpo.short || (cpoPlat === 'other' ? a?.company : '') || '')}" placeholder="เช่น EA, OR, EGAT"></label>
+          <label class="field"><span class="req">ชื่อผู้ให้บริการ (CPO)</span><input type="text" name="cpo_provider" value="${esc(cpoPlat === 'other' ? cpo.provider : '')}"></label>
           <label class="field"><span>Email</span><input type="email" name="cpo_email" value="${esc(cpo.email)}"></label>
           <label class="field"><span>เบอร์โทรศัพท์</span><input type="tel" name="cpo_phone" value="${esc(cpo.phone)}"></label>
-        </div>`)}
+        </div>
+        <p class="cpo-note">${icon('info', 'i-sm')}<span>${VOLTA_NOTE}<br><small>สถานีที่ใช้ PEA VOLTA ผ่านเงื่อนไขที่ 3 โดยไม่ต้องทดสอบ CPO–PEA EVMS (หนังสือ กบท.(บย)683/2567)</small></span></p>`)}
       ${fsec('8d', '8', 'หลักฐานประกอบการขอใช้ไฟฟ้าที่ได้รับแล้ว', `
         ${DOC_GROUPS.map((g) => `<div class="doc-group"><h4>${esc(g.title)}</h4>${g.items.map(([k, t]) => checkbox('doc', k, t, docs.has(k))).join('')}</div>`).join('')}
         <label class="field"><span>อื่นๆ</span><input type="text" name="documents_other" value="${esc(d.documents_other)}"></label>`)}
@@ -984,6 +996,14 @@ async function renderForm(id) {
   });
   $$('.pdf-names', form).forEach((b) => { b.dataset.empty = b.textContent; });
 
+  const cpoSel = $('#cpoPlatform', form);
+  const syncCpo = () => {
+    const other = cpoSel.value === 'other';
+    $('#cpoOther', form).hidden = !other;
+    ['cpo_system_name', 'cpo_short', 'cpo_provider'].forEach((n) => { form.elements[n].required = other; });
+  };
+  cpoSel.addEventListener('change', syncCpo); syncCpo();
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const payload = collectForm(form);
@@ -1022,7 +1042,7 @@ function collectForm(form) {
   return {
     office: v('office'), region: v('region'), province: v('province'), district: v('district'),
     request_date: v('request_date'),
-    station_name: v('station_name'), station_address: v('station_address'), company: v('company'),
+    station_name: v('station_name'), station_address: v('station_address'),
     applicant_name: v('applicant_name'), applicant_type: v('applicant_type'),
     contact_name: v('contact_name'), email: v('email'), phone: v('phone'),
     ca_no: v('ca_no'), meter_no: v('meter_no'),
@@ -1035,7 +1055,7 @@ function collectForm(form) {
     total_kva: v('total_kva'),
     equipment: rows('#equipTable', ['type', 'kw', 'qty']),
     revenue: checked('revenue'), revenue_other: v('revenue_other'),
-    cpo: { system_name: v('cpo_system_name'), provider: v('cpo_provider'), email: v('cpo_email'), phone: v('cpo_phone') },
+    cpo: { platform: v('cpo_platform'), system_name: v('cpo_system_name'), short: v('cpo_short'), provider: v('cpo_provider'), email: v('cpo_email'), phone: v('cpo_phone') },
     documents: checked('doc'), documents_other: v('documents_other'),
     test_60364: v('test_60364'), test_61851: v('test_61851'),
     remark: v('remark'),
@@ -1046,7 +1066,7 @@ function collectForm(form) {
 const EVENT_LABEL = {
   create: 'รับคำร้อง', update: 'แก้ไขข้อมูล', upload: 'เพิ่มหลักฐาน', delete_file: 'ลบหลักฐาน', ready: 'ครบเงื่อนไข 3 ข้อ',
   unready: 'เงื่อนไขไม่ครบ', low_rate: 'เปลี่ยนอัตรา Low แล้ว', low_rate_edit: 'แก้ไขวันที่มีผล', cancel: 'ยกเลิกคำร้อง',
-  invoice: 'บันทึกเลขที่คำร้อง', invoice_delete: 'ลบเลขที่คำร้อง',
+  invoice: 'บันทึกเลขที่คำร้อง', invoice_delete: 'ลบเลขที่คำร้อง', volta: 'ระบบ CPO: PEA VOLTA',
   payment: 'บันทึกการชำระเงิน', payment_undo: 'ยกเลิกการชำระเงิน', paid: 'ชำระค่าทดสอบครบ',
   payment_exempt: 'ไม่ต้องชำระค่าทดสอบ', payment_exempt_undo: 'ยกเลิก "ไม่ต้องชำระ"',
 };
@@ -1054,6 +1074,7 @@ const EVENT_LABEL = {
 // กติกาเดียวกับเซิร์ฟเวอร์: ครบเมื่อมีหลักฐานอย่างน้อย 1 รายการที่ผลไม่ใช่ "ไม่ผ่าน"
 function condState(a, n) {
   const list = a.attachments.filter((t) => t.condition_no === n);
+  if (n === 3 && a.conditions.c3_volta) return 'met';
   if (!list.length) return 'none';
   return list.some((t) => t.result !== 'fail') ? 'met' : 'failed';
 }
@@ -1088,7 +1109,7 @@ async function renderDetail(id, tab) {
     <section class="card">
       <div class="hero">
         <div class="hero-top">
-          <span class="avatar lg">${initials(a.company, a.station_name)}</span>
+          ${avatarBox(a.cpo_short, a.station_name, 'lg')}
           <div class="info">
             <div class="row" style="gap:6px">${statusPill(a.status, true)}<span class="tag mono">${esc(a.app_no)}</span>
               ${a.source === 'import' ? `<span class="tag">${icon('upload', 'i-sm')}นำเข้าจาก Excel</span>` : ''}</div>
@@ -1372,6 +1393,15 @@ function evidenceItem(t) {
 }
 
 // n = 0 แบบฟอร์มคำร้อง (PDF) · 1–3 เงื่อนไข · 4 ผลการตรวจวัดทดสอบความปลอดภัย
+// เงื่อนไขที่ 3 ของสถานี PEA VOLTA: อ้างอิงหนังสือในเมนูเอกสารหลักฐานที่เกี่ยวข้อง
+function voltaEvidence(a) {
+  const doc = a.volta_doc;
+  return `<div class="volta-ev">${icon('zap', 'i-sm')}<div><strong>ใช้ PEA VOLTA Platform — ผ่านเงื่อนไขนี้โดยไม่ต้องทดสอบ CPO–PEA EVMS</strong>
+    <small>${esc(VOLTA_NOTE)} ตามหนังสือ กบท.(บย)683/2567 (อนุมัติ ผวก. 13 พ.ค. 2567)</small>
+    ${doc ? `<a class="btn btn-sm" href="/api/documents/${doc.id}/file?inline=1" target="_blank" rel="noopener">${icon('external', 'i-sm')}เปิดหนังสือ กบท.(บย)683/2567</a>`
+      : `<a class="btn btn-sm" href="#/docs">${icon('folder', 'i-sm')}เอกสารหลักฐานที่เกี่ยวข้อง</a>`}</div></div>`;
+}
+
 function conditionBlock(a, n) {
   const list = a.attachments.filter((t) => t.condition_no === n);
   const st = condState(a, n);
@@ -1406,8 +1436,10 @@ function conditionBlock(a, n) {
           <button type="submit" class="btn btn-sm btn-primary">${icon('check', 'i-sm')}บันทึก</button>
         </div>
       </form></div>`;
-  } else if (isCond && a.status === 'pending' && !a.payment.done) {
+  } else if (isCond && a.status === 'pending' && !a.payment.done && !(n === 3 && a.conditions.c3_volta)) {
     foot = `<div class="cond-foot"><span class="locked">${icon('receipt', 'i-sm')}บันทึกได้หลังชำระค่าทดสอบครบ · ผู้บันทึก: ${esc(CONDITIONS[n].who)}</span></div>`;
+  } else if (n === 3 && a.conditions.c3_volta) {
+    foot = '';
   } else if (a.status === 'pending' || a.status === 'ready') {
     foot = `<div class="cond-foot"><span class="locked">${icon('info', 'i-sm')}ผู้บันทึก: ${esc(CONDITIONS[n].who)}</span></div>`;
   }
@@ -1417,7 +1449,9 @@ function conditionBlock(a, n) {
       <div class="cond-title"><h3>${esc(CONDITIONS[n].title)}</h3><span class="by">${icon('user', 'i-sm')}${esc(CONDITIONS[n].who)}</span></div>
       ${pill}
     </div>
-    <ul class="ev-list">${list.length ? list.map(evidenceItem).join('') : `<li class="ev-none">${isForm ? 'ยังไม่ได้แนบไฟล์คำร้อง' : 'ยังไม่มีข้อมูล'}</li>`}</ul>
+    ${n === 3 && a.conditions.c3_volta ? voltaEvidence(a) : ''}
+    ${n === 3 && a.conditions.c3_volta && !list.length ? ''
+      : `<ul class="ev-list">${list.length ? list.map(evidenceItem).join('') : `<li class="ev-none">${isForm ? 'ยังไม่ได้แนบไฟล์คำร้อง' : 'ยังไม่มีข้อมูล'}</li>`}</ul>`}
     ${foot || '<div style="height:6px"></div>'}
   </article>`;
 }
@@ -1526,7 +1560,7 @@ function renderReadonly(a) {
     ${d.imported ? `<div class="note-box">${icon('info')}<span>นำเข้าจากไฟล์ ${esc(d.import_file)} แถวที่ ${esc(d.import_row)} · ข้อมูลบางส่วนของแบบฟอร์ม (เช่น ข้อ 2, 3, 7) ไม่มีในไฟล์ต้นทาง</span></div>` : ''}
     ${sec('ก', 'ผู้ขอใช้ไฟฟ้าและสถานี', kv([
       ['ชื่อสถานี', esc(a.station_name)], ['ผู้ขอใช้ไฟฟ้า', `${esc(a.applicant_name)}${d.applicant_type ? ` <span class="faint">(${esc(lookup(APPLICANT_TYPES, d.applicant_type))})</span>` : ''}`],
-      ['ชื่อย่อบริษัท / แบรนด์', esc(a.company)],
+      ['ชื่อย่อบริษัท / แบรนด์', esc(a.company), !!a.company],
       ['กฟส.ในพื้นที่ใช้ไฟฟ้า', esc(a.office)], ['กฟข.', esc(regionLabel(a.region))],
       ['อำเภอ / จังหวัด', esc([a.district, a.province].filter(Boolean).join(' / '))], ['ที่อยู่สถานี', esc(a.station_address)],
       ['ผู้ติดต่อ', esc(a.contact_name)], ['โทรศัพท์ / Email', esc([a.phone, a.email].filter(Boolean).join(' · '))],
@@ -1543,8 +1577,11 @@ function renderReadonly(a) {
     ${(d.equipment || []).length ? sec('6', 'อุปกรณ์ไฟฟ้าอื่นๆ', `${table(['ที่', 'ชนิดของอุปกรณ์', 'พิกัด (kW)', 'จำนวน'], d.equipment.map((r, i) => [i + 1, r.type, fmtNum(r.kw), fmtNum(r.qty)]))}
       <div class="totals" style="margin-top:10px"><span class="total-pill">รวม ${fmtNum(d.equipment_total_kw)} kW</span></div>`) : ''}
     ${sec('7', 'การจัดเก็บรายได้', revLabels.length ? `<ul class="ticks">${revLabels.map((t) => `<li>${icon('check', 'i-sm')}<span>${esc(t)}</span></li>`).join('')}</ul>` : (d.imported ? noData : dash))}
-    ${sec('8', 'ระบบ CPO', kv([
-      ['ชื่อระบบให้บริการ / Platform', esc(d.cpo?.system_name)], ['ผู้ให้บริการ', esc(d.cpo?.provider)],
+    ${sec('8', 'ระบบ CPO', cpoPlatform(d.cpo) === 'volta'
+      ? `${kv([['ระบบ CPO / Platform', 'PEA VOLTA'], ['ผู้ให้บริการ', esc(d.cpo?.provider || 'การไฟฟ้าส่วนภูมิภาค (กฟภ.)')]])}
+         <p class="cpo-note">${icon('info', 'i-sm')}<span>${VOLTA_NOTE} — ผ่านเงื่อนไขที่ 3 แล้ว</span></p>`
+      : kv([
+      ['ชื่อระบบให้บริการ / Platform', esc(d.cpo?.system_name)], ['ชื่อย่อ CPO', esc(d.cpo?.short), !!d.cpo?.short], ['ผู้ให้บริการ', esc(d.cpo?.provider)],
       ['โทรศัพท์ / Email', esc([d.cpo?.phone, d.cpo?.email].filter(Boolean).join(' · ')), !d.imported]]))}
     ${docLabels.length || d.documents_other ? sec('8', 'หลักฐานประกอบการขอใช้ไฟฟ้า', `<ul class="ticks">${docLabels.map((t) => `<li>${icon('check', 'i-sm')}<span>${esc(t)}</span></li>`).join('')}</ul>
       ${d.documents_other ? `<p style="margin-top:8px">อื่นๆ: ${esc(d.documents_other)}</p>` : ''}`) : ''}
