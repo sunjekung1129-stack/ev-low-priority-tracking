@@ -17,6 +17,19 @@ async function call(c, method, url, body) {
   const type = r.headers.get('content-type') || '';
   return { status: r.status, body: type.includes('json') ? await r.json() : await r.text() };
 }
+// Export Excel → ข้อความทีละแถว (ค่าเซลล์คั่นด้วย ,) สำหรับตรวจเนื้อหา
+async function xlsx(cookie, query = '') {
+  const ExcelJS = require('exceljs');
+  const r = await fetch(`${B}/api/applications/export.xlsx${query}`, { headers: { cookie } });
+  const type = r.headers.get('content-type') || '';
+  if (r.status !== 200 || !type.includes('spreadsheetml')) return { status: r.status, type, text: '' };
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(Buffer.from(await r.arrayBuffer()));
+  const ws = wb.worksheets[0];
+  const lines = [];
+  ws.eachRow((row) => lines.push(row.values.slice(1).map((v) => (v instanceof Date ? v.toISOString().slice(0, 10) : v ?? '')).join(',')));
+  return { status: r.status, type, text: lines.join('\n'), ws, name: r.headers.get('content-disposition') || '' };
+}
 const pdf = (text) => new Blob([`%PDF-1.4 ${text}`], { type: 'application/pdf' });
 const stamp = Date.now().toString().slice(-6);
 const form = {
@@ -162,11 +175,15 @@ const multipart = (payload, files = {}) => {
   const pinMine = (await call(f1, 'GET', '/api/map?scope=all')).body.find((x) => x.id === id);
   check('หมุดแผนที่พื้นที่อื่นไม่มี id/ชื่อสถานี/ผู้ขอใช้ไฟฟ้า', pinOther && pinOther.mine === false && !('id' in pinOther) && !('station_name' in pinOther) && !('applicant_name' in pinOther), JSON.stringify(pinOther));
   check('หมุดแผนที่พื้นที่ตนเองมีรายละเอียดและ id', pinMine && pinMine.mine === true && pinMine.station_name === form.station_name);
-  const f2csv = await call(f2, 'GET', '/api/applications/export.csv?scope=all');
-  check('CSV ของ กฟส. อื่นไม่มีคำร้องนอกพื้นที่', typeof f2csv.body === 'string' && !f2csv.body.includes(d.app_no));
-  const csv = await call(admin, 'GET', '/api/applications/export.csv');
-  check('ส่งออก CSV มีคำร้องใหม่', typeof csv.body === 'string' && csv.body.includes(d.app_no));
-  check('CSV มีคอลัมน์ผลทดสอบความปลอดภัย', csv.body.includes('ผลทดสอบความปลอดภัย'));
+  const f2csv = await xlsx(f2, '?scope=all');
+  check('Excel ของ กฟส. อื่นไม่มีคำร้องนอกพื้นที่', f2csv.status === 200 && !f2csv.text.includes(d.app_no), f2csv.status);
+  const xl = await xlsx(admin);
+  check('Export Excel เป็นไฟล์ .xlsx มีคำร้องใหม่', xl.status === 200 && /\.xlsx/.test(decodeURIComponent(xl.name)) && xl.text.includes(d.app_no), `${xl.status} ${xl.type}`);
+  check('Excel มีคอลัมน์ผลทดสอบความปลอดภัย และตรึงแถวหัวตาราง/ตัวกรอง', xl.text.split('\n')[0].includes('ผลทดสอบความปลอดภัย')
+    && xl.ws.views[0]?.state === 'frozen' && !!xl.ws.autoFilter);
+  const xrow = xl.ws.getRows(2, xl.ws.rowCount - 1).find((row) => row.getCell(1).value === d.app_no);
+  check('Excel วันที่มีผลอัตรา Low เป็นเซลล์วันที่ และ กฟข. ไม่มีเลขนำหน้า', xrow && xrow.getCell(24).value instanceof Date && xrow.getCell(7).value === 'กฟน.1',
+    xrow && `${xrow.getCell(24).value} ${xrow.getCell(7).value}`);
   // เอกสารหลักฐานที่เกี่ยวข้อง: ผู้ดูแลระบบจัดการ ทุกบทบาทดาวน์โหลดได้
   const docForm = (title) => { const fd = new FormData(); fd.append('file', pdf('doc'), 'แบบฟอร์มทดสอบ.pdf'); if (title) fd.append('title', title); fd.append('category', 'conditions'); return fd; };
   r = await call(f1, 'POST', '/api/documents', docForm('ไม่ควรเพิ่มได้'));
@@ -208,8 +225,8 @@ const multipart = (payload, files = {}) => {
   check('PEA VOLTA ครบเงื่อนไข 1–2 → รอเปลี่ยนอัตรา Low', r.body.status === 'ready', JSON.stringify(r.body));
   r = await call(tfd, 'POST', `/api/applications/${vid}/evidence?condition=3`, { url: 'https://drive.google.com/file/d/x/view' });
   check('PEA VOLTA ไม่ต้องบันทึกเงื่อนไข 3 (กทฟ. บันทึกไม่ได้)', r.status === 403, r.status);
-  const vcsv = (await call(admin, 'GET', '/api/applications/export.csv')).body;
-  check('CSV เงื่อนไข 3 ของ PEA VOLTA = ครบ (PEA VOLTA)', vcsv.split('\n').some((l) => l.includes(vd.app_no) && l.includes('ครบ (PEA VOLTA)')));
+  const vcsv = (await xlsx(admin)).text;
+  check('Excel เงื่อนไข 3 ของ PEA VOLTA = ครบ (PEA VOLTA)', vcsv.split('\n').some((l) => l.includes(vd.app_no) && l.includes('ครบ (PEA VOLTA)')));
   r = await call(f1, 'PUT', `/api/applications/${vid}`, { ...form, station_name: vd.station_name, ca_no: vd.ca_no, meter_no: vd.meter_no,
     cpo: { platform: 'other', system_name: 'Other App', short: 'OTH', provider: 'บจ. อื่น' } });
   check('เปลี่ยนจาก PEA VOLTA เป็นระบบอื่น → กลับเป็นรอเงื่อนไข 3', r.status === 200 && r.body.status === 'pending', JSON.stringify(r.body));

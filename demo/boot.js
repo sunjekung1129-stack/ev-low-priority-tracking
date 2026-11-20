@@ -311,6 +311,11 @@
     'node:sqlite': { DatabaseSync }, 'node:path': pathShim, 'node:fs': fsShim, 'node:crypto': cryptoShim,
     path: pathShim, fs: fsShim, crypto: cryptoShim, express: expressShim, multer: multerShim, 'content-disposition': contentDisposition,
   };
+  // Export Excel: ExcelJS ฉบับเบราว์เซอร์ (โหลดแบบ async จาก cdnjs ใน index.html — เซิร์ฟเวอร์ require ตอนกด Export)
+  Object.defineProperty(SHIMS, 'exceljs', { enumerable: true, get() {
+    if (!window.ExcelJS) throw new Error('กำลังโหลดตัวสร้างไฟล์ Excel กรุณาลองอีกครั้งในอีกสักครู่');
+    return window.ExcelJS;
+  } });
   const sources = {};
   await Promise.all([['server/db.js'], ['server/google-sync.js'], ['server/index.js'], ['google-apps-script/Code.gs', true]].map(async ([p, asFile]) => {
     const text = await (await fetch(p, { cache: 'no-cache' })).text();
@@ -417,7 +422,7 @@
     const blob = await r.blob();
     const cd = r.headers.get('content-disposition') || '';
     const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
-    const name = m ? decodeURIComponent(m[1]) : url.includes('export.csv') ? 'ev-low-priority-demo.csv' : 'download';
+    const name = m ? decodeURIComponent(m[1]) : url.includes('export.xlsx') ? 'ev-low-priority-demo.xlsx' : 'download';
     const href = URL.createObjectURL(blob);
     if (cd.startsWith('inline')) window.open(href, '_blank', 'noopener');
     else { const a = document.createElement('a'); a.href = href; a.download = name; document.body.append(a); a.click(); a.remove(); }

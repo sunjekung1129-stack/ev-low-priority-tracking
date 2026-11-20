@@ -273,7 +273,7 @@ async function main() {
   swap('<title>EV-LPTS · ระบบติดตามสถานะคำร้องขอใช้ไฟฟ้า EV Low Priority</title>', '<title>EV-LPTS (เดโม) · ระบบติดตามสถานะคำร้องขอใช้ไฟฟ้า EV Low Priority</title>\n  <meta name="robots" content="noindex">');
   swap('href="/styles.css"', 'href="styles.css"');
   swap('<script src="/app.js"></script>',
-    '<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>\n  <script src="boot.js"></script>');
+    '<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>\n  <script async src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>\n  <script src="boot.js"></script>');
   fs.writeFileSync(path.join(OUT, 'index.html'), html);
   fs.writeFileSync(path.join(OUT, '.nojekyll'), '');
   fs.rmSync(tmp, { recursive: true, force: true });

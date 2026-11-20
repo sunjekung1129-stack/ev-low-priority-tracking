@@ -346,7 +346,7 @@ function normalizeForm(body) {
   return { cols, data, errors };
 }
 
-// ขอบเขตข้อมูล: รายการคำร้อง/CSV ของ กฟส./กบล. เป็นพื้นที่ตนเองเสมอ
+// ขอบเขตข้อมูล: รายการคำร้อง/Export Excel ของ กฟส./กบล. เป็นพื้นที่ตนเองเสมอ
 // scope=all ใช้ได้เฉพาะตัวเลขสรุป (/api/stats) — ส่ง allowAll = true
 function scopeWhere(user, params, scope, allowAll = false) {
   if (scope === 'all' && allowAll) return '1=1';
@@ -465,21 +465,68 @@ app.get('/api/map', requireAuth, (req, res) => {
     : { mine: false, office: r.office, region: r.region, province: r.province, status: r.status, lat: r.lat, lng: r.lng })));
 });
 
-app.get('/api/applications/export.csv', requireAuth, (req, res) => {
+// Export Excel (.xlsx): ขอบเขตเดียวกับรายการคำร้อง (กฟส. = ของตน, กบล. = ทั้งเขต) และตามตัวกรองที่เลือก
+app.get('/api/applications/export.xlsx', requireAuth, async (req, res) => {
+  const ExcelJS = require('exceljs'); // โหลดเมื่อใช้ (เดโมโหลดไลบรารีฝั่งเบราว์เซอร์แยก)
   const STATUS = { pending: 'รอเงื่อนไข', ready: 'รอเปลี่ยนอัตราใน SAP', completed: 'เสร็จสมบูรณ์', cancelled: 'ยกเลิก' };
-  const yn = (b) => (b ? 'ครบ' : '-');
   const SAFETY_TEXT = { none: 'ยังไม่มีผล', pass: 'ผ่าน', recorded: 'บันทึกแล้ว', fail: 'ไม่ผ่าน' };
-  const header = ['เลขที่คำร้อง', 'วันที่ยื่นคำร้อง', 'ชื่อสถานี', 'ชื่อย่อ CPO / บริษัท', 'ผู้ขอใช้ไฟฟ้า', 'กฟส.ในพื้นที่ใช้ไฟฟ้า', 'กฟข.', 'อำเภอ', 'จังหวัด',
-    'CA', 'Meter No.', 'kW รวม', 'kVA', 'เงื่อนไข 1 ขึ้นทะเบียน', 'เงื่อนไข 2 ตรวจการติดตั้ง', 'เงื่อนไข 3 ทดสอบ CPO-EVMS',
-    'เลขที่คำร้องค่าทดสอบความปลอดภัย', 'เลขที่คำร้องค่าทดสอบ CPO', 'ชำระค่าทดสอบครบ', 'ผลทดสอบความปลอดภัย',
-    'สถานะ', 'วันที่ครบเงื่อนไข', 'หนังสือเปลี่ยนอัตรา', 'วันที่มีผลอัตรา Low'];
-  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = listApplications(req.user, req.query).map((r) => [r.app_no, r.request_date, r.station_name, r.cpo_short,
-    r.applicant_name, r.office, r.region, r.district, r.province, r.ca_no, r.meter_no, r.total_kw, r.total_kva,
-    yn(r.c1), yn(r.c2), r.volta ? 'ครบ (PEA VOLTA)' : yn(r.c3), r.inv_safety, r.inv_cpo, r.paid ? 'ครบ' : 'ค้างชำระ', SAFETY_TEXT[r.safety], STATUS[r.status], r.ready_at, r.low_letter_no, r.low_effective_date].map(esc).join(','));
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', contentDisposition(`ev-low-priority-${now().slice(0, 10)}.csv`));
-  res.send('﻿' + [header.map(esc).join(','), ...lines].join('\r\n'));
+  const yn = (b) => (b ? 'ครบ' : '-');
+  const day = (v) => { // วันที่เป็นเซลล์วันที่จริงของ Excel (เรียง/กรองได้)
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+    return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
+  };
+  // [หัวคอลัมน์, ความกว้าง, ค่า, รูปแบบ]
+  const COLS = [
+    ['เลขที่คำร้อง', 15, (r) => r.app_no],
+    ['วันที่ยื่นคำร้อง', 13, (r) => day(r.request_date), 'date'],
+    ['ชื่อสถานี', 36, (r) => r.station_name],
+    ['ชื่อย่อ CPO / บริษัท', 12, (r) => r.cpo_short],
+    ['ผู้ขอใช้ไฟฟ้า', 30, (r) => r.applicant_name],
+    ['กฟส.ในพื้นที่ใช้ไฟฟ้า', 20, (r) => r.office],
+    ['กฟข.', 9, (r) => String(r.region || '').replace(/^\d+\./, '')],
+    ['อำเภอ', 14, (r) => r.district],
+    ['จังหวัด', 14, (r) => r.province],
+    ['CA', 15, (r) => r.ca_no],
+    ['Meter No.', 15, (r) => r.meter_no],
+    ['kW รวม', 9, (r) => r.total_kw, 'num'],
+    ['kVA', 9, (r) => r.total_kva, 'num'],
+    ['เงื่อนไข 1 ขึ้นทะเบียน', 12, (r) => yn(r.c1)],
+    ['เงื่อนไข 2 ตรวจการติดตั้ง', 12, (r) => yn(r.c2)],
+    ['เงื่อนไข 3 ทดสอบ CPO-EVMS', 16, (r) => (r.volta ? 'ครบ (PEA VOLTA)' : yn(r.c3))],
+    ['เลขที่คำร้องค่าทดสอบความปลอดภัย', 17, (r) => r.inv_safety],
+    ['เลขที่คำร้องค่าทดสอบ CPO', 17, (r) => r.inv_cpo],
+    ['ชำระค่าทดสอบครบ', 12, (r) => (r.paid ? 'ครบ' : 'ค้างชำระ')],
+    ['ผลทดสอบความปลอดภัย', 13, (r) => SAFETY_TEXT[r.safety]],
+    ['สถานะ', 18, (r) => STATUS[r.status]],
+    ['วันที่ครบเงื่อนไข', 13, (r) => day(r.ready_at), 'date'],
+    ['หนังสือเปลี่ยนอัตรา', 20, (r) => r.low_letter_no],
+    ['วันที่มีผลอัตรา Low', 13, (r) => day(r.low_effective_date), 'date'],
+  ];
+  const rows = listApplications(req.user, req.query);
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'EV-LPTS';
+  wb.created = new Date();
+  const ws = wb.addWorksheet('คำร้อง EV Low Priority', { views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }] });
+  ws.columns = COLS.map(([header, width]) => ({ header, width }));
+  for (const r of rows) ws.addRow(COLS.map(([, , get]) => { const v = get(r); return v === undefined || v === '' ? null : v; }));
+  const head = ws.getRow(1);
+  head.height = 36;
+  head.eachCell((c) => {
+    c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF6B2C91' } };
+    c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+  });
+  COLS.forEach(([, , , fmt], i) => {
+    const col = ws.getColumn(i + 1);
+    if (fmt === 'date') { col.numFmt = 'dd/mm/yyyy'; col.alignment = { horizontal: 'center' }; }
+    if (fmt === 'num') col.numFmt = '#,##0.##';
+  });
+  head.eachCell((c) => { c.numFmt = 'General'; });
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: COLS.length } };
+  const buf = await wb.xlsx.writeBuffer();
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', contentDisposition(`ev-low-priority-${now().slice(0, 10)}.xlsx`));
+  res.send(Buffer.isBuffer(buf) ? buf : new Uint8Array(buf));
 });
 
 // company (ชื่อย่อบริษัท) ไม่อยู่ในแบบฟอร์มแล้ว — คงค่าเดิมของข้อมูลที่นำเข้าจาก Excel ไว้

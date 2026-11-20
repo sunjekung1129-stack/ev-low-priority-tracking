@@ -86,7 +86,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     nf.append('form_pdf', new File([new Uint8Array([37, 80, 68, 70])], 'คำร้อง.pdf', { type: 'application/pdf' }));
     const created = await j('POST', '/api/applications', nf);
     res.create = [created.s, created.b.id];
-    res.csv = (await fetch('/api/applications/export.csv?scope=all')).status;
+    for (let i = 0; i < 50 && !window.ExcelJS; i++) await new Promise((ok) => setTimeout(ok, 200)); // ไลบรารีโหลดแบบ async
+    const xr = await fetch('/api/applications/export.xlsx?scope=all');
+    const xb = new Uint8Array(await xr.arrayBuffer());
+    res.csv = [xr.status, (xr.headers.get('content-type') || '').includes('spreadsheetml'), xb[0] === 0x50 && xb[1] === 0x4b, xb.length];
     res.stats = (await j('GET', '/api/stats?scope=all')).b.total;
     const docs = (await j('GET', '/api/documents')).b;
     const docFile = docs[0] ? await fetch(`/api/documents/${docs[0].id}/file`) : null;
@@ -100,7 +103,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check('อัปโหลดไฟล์เงื่อนไข 1 + ดาวน์โหลดกลับ', r.upload === 201 && r.download[0] === 200 && r.download[2] === 6, JSON.stringify(r.download));
   check('เงื่อนไข 2 (ลิงก์) ได้ · เงื่อนไข 1 ใส่เลขที่หนังสืออย่างเดียวไม่ได้ · เงื่อนไข 3 โดย กฟส. ไม่ได้', r.ev2 === 201 && r.ev2docOnly === 400 && r.ev3byField === 403, `${r.ev2} ${r.ev2docOnly} ${r.ev3byField}`);
   check('รับคำร้องใหม่พร้อม PDF', r.create[0] === 201, JSON.stringify(r.create));
-  check('ส่งออก CSV + สถิติ', r.csv === 200 && r.stats === 41, `${r.csv} ${r.stats}`);
+  check('Export Excel (.xlsx) + สถิติ', r.csv[0] === 200 && r.csv[1] && r.csv[2] && r.csv[3] > 3000 && r.stats === 41, `${JSON.stringify(r.csv)} ${r.stats}`);
   check('เอกสารตัวอย่าง 5 รายการ (รวมหนังสือ PEA VOLTA) เปิดไฟล์ได้', r.docs[0] === 5 && r.docs[1] === 200 && r.docs[2] > 300, JSON.stringify(r.docs));
 
   // ข้อมูลยังอยู่หลังรีโหลด (IndexedDB)

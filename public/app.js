@@ -648,7 +648,7 @@ async function renderDashboard() {
       <div><h1>รายการคำร้อง EV Low Priority</h1>
         <p>${esc(areaLabel(u))} · ข้อมูล ณ ${fmtDate(todayISO())}</p></div>
       <div class="row">
-        <a class="btn" id="exportBtn" href="#">${icon('download')}ส่งออก CSV</a>
+        <a class="btn" id="exportBtn" href="#">${icon('download')}Export Excel</a>
         ${canCreate(u) ? `<a class="btn btn-primary" href="#/new">${icon('plus')}รับคำร้องใหม่</a>` : ''}
       </div>
     </div>
@@ -707,7 +707,7 @@ async function renderDashboard() {
   });
   $('#exportBtn').addEventListener('click', (e) => {
     e.preventDefault();
-    openUrl(`/api/applications/export.csv?${new URLSearchParams(f)}`);
+    openUrl(`/api/applications/export.xlsx?${new URLSearchParams(f)}`);
   });
   await loadList();
 }
