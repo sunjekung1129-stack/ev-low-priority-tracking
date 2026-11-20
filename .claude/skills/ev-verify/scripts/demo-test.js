@@ -80,7 +80,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     // รับคำร้องใหม่พร้อม PDF
     const payload = { request_date: '2026-11-17', station_name: 'สถานีทดสอบเดโม', applicant_name: 'บริษัท ทดสอบ จำกัด', ca_no: '020011112222', meter_no: '6511112222',
       location_type: 'ห้างสรรพสินค้า', criteria: Array(8).fill(true), charge_channels: ['QR Code'], service_hours: '24',
-      chargers: [{ brand: 'X', model: 'Y', kw: 60, qty: 1 }], test_60364: 'pea', test_61851: 'pea', lat: 18.8, lng: 99 };
+      chargers: [{ brand: 'X', model: 'Y', kw: 60, qty: 1 }], test_60364: 'pea', test_61851: 'pea', lat: 18.8, lng: 99, cpo: { platform: 'volta' } };
     const nf = new FormData();
     nf.append('payload', JSON.stringify(payload));
     nf.append('form_pdf', new File([new Uint8Array([37, 80, 68, 70])], 'คำร้อง.pdf', { type: 'application/pdf' }));
